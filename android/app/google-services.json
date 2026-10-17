@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "657550114349",
+    "project_id": "cs-cosplay",
+    "storage_bucket": "cs-cosplay.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:657550114349:android:fd54f5a82df33af53a02a4",
+        "android_client_info": {
+          "package_name": "com.example.cs_cosplay"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBxRVEDtGvhRhk1Sq9ojKh7HFKTyKvepio"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

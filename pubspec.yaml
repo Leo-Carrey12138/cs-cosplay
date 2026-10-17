@@ -1,0 +1,53 @@
+name: cs_cosplay
+description: "纯软件真人 CS 对战：摄像头 + 本地 ML Kit 目标检测 + Firebase 房间。Android only。"
+publish_to: 'none'
+version: 1.0.1+2
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ---- 相机 ----
+  camera: ^0.10.5+9
+
+  # 显式声明 CameraX 实现，让它顶掉 camera 0.10.x 默认的 camera_android（Camera2）。
+  #
+  # 为什么这样能生效（见 flutter_tools/src/flutter_plugins.dart
+  # 的 _resolveImplementationOfPlugin）：解析某平台上「implements: camera」的实现时，
+  # 先看 App 的**直接依赖**——只要本 App 直接依赖了某个实现包，它就直接胜出；
+  # 只有 App 没直接依赖任何实现时，才会回落到 camera 自己声明的
+  # default_package（= camera_android）。因此不需要 dependency_overrides，
+  # 也不会出现两个实现同时注册、CameraPlatform.instance 被谁覆盖不确定的问题。
+  #
+  # 匹配条件：本包要求 sdk ^3.12.0、flutter >=3.44.0、
+  # camera_platform_interface ^2.14.0。本机 Flutter 3.47.7 / Dart 3.13.5，
+  # 锁文件里 platform_interface 已是 2.15.0，均满足。
+  camera_android_camerax: ^0.7.5
+
+  # ---- 本地 AI（全部使用系统内置基础模型，不打包任何 .tflite 大文件）----
+  google_mlkit_commons: ^0.13.0
+  google_mlkit_object_detection: ^0.17.1
+  google_mlkit_image_labeling: ^0.16.1
+
+  # ---- 实时网络 ----
+  # 用区间而不是固定小版本：让 pub 自动挑一组互相兼容的 firebase_* 版本，
+  # 避免 Firebase SDK 大版本升级时锁死。若解析失败见《部署清单》第 7 步。
+  firebase_core: ">=3.6.0 <5.0.0"
+  firebase_database: ">=11.0.0 <13.0.0"
+
+  # ---- 状态管理 / 反馈 ----
+  provider: ^6.1.2
+  vibration: ^3.2.1
+  audioplayers: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/audio/

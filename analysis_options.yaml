@@ -1,0 +1,15 @@
+# 刻意保持极简：不引入 flutter_lints，减少一次 pub 解析的不确定性。
+analyzer:
+  errors:
+    # 为了兼容不同 Flutter 版本（withOpacity/withValues、MaterialState 改名等），
+    # 这里不把 deprecation 当错误，保证在任何近期 Flutter 上都能 build 通过。
+    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore
+  exclude:
+    - build/**
+    - android/**
+
+linter:
+  rules:
+    - prefer_const_constructors
+    - avoid_print

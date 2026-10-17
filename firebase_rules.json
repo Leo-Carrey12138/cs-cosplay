@@ -1,0 +1,45 @@
+{
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        ".read": true,
+        ".write": true,
+
+        "players": {
+          "$pid": {
+            "name": {
+              ".validate": "newData.val() === null || (newData.isString() && newData.val().length > 0 && newData.val().length <= 12)"
+            },
+            "hp": {
+              ".validate": "newData.val() === null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 100)"
+            },
+            "isDead": {
+              ".validate": "newData.val() === null || newData.isBoolean()"
+            },
+            "deathAt": {
+              ".validate": "newData.val() === null || newData.isNumber()"
+            },
+            "joinedAt": {
+              ".validate": "newData.val() === null || newData.isNumber()"
+            }
+          }
+        },
+
+        "feed": {
+          "$pushId": {
+            "text": {
+              ".validate": "newData.val() === null || (newData.isString() && newData.val().length <= 64)"
+            },
+            "ts": {
+              ".validate": "newData.val() === null || newData.isNumber()"
+            }
+          }
+        },
+
+        "hostId": {
+          ".validate": "newData.val() === null || newData.isString()"
+        }
+      }
+    }
+  }
+}
