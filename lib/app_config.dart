@@ -15,10 +15,10 @@ class Cfg {
   // ---------------- 本地 AI ----------------
   /// 抽帧间隔：300ms 一帧（≈3.3 FPS）。ML Kit 单帧推理 ~80-150ms，
   /// 这个间隔足以瞄准又不至于把 UI 卡死。
-  static const Duration detectInterval = Duration(milliseconds: 300);
+  static const Duration detectInterval = Duration(milliseconds: 200);
 
   /// Image Labeling 判定「画面里有真人」的置信度阈值
-  static const double personConfidence = 0.55;
+  static const double personConfidence = 0.4;
 
   /// 是否启用「Image Labeling + Object Detection」融合。
   /// ML Kit 目标检测【基础模型】的粗分类只有 5 类（时尚商品/食品/家居用品/地点/植物），
@@ -28,7 +28,7 @@ class Cfg {
 
   // ---------------- 命中判定 ----------------
   /// person 框占屏幕总面积低于该比例 = 超出射程（不弹选人框）
-  static const double minTargetAreaRatio = 0.03; // 3%
+  static const double minTargetAreaRatio = 0.005; 
 
   // ---------------- 节奏 ----------------
   /// 开火冷却
