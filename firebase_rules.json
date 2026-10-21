@@ -21,6 +21,9 @@
             },
             "joinedAt": {
               ".validate": "newData.val() === null || newData.isNumber()"
+            },
+            "invincible": {
+              ".validate": "newData.val() === null || newData.isBoolean()"
             }
           }
         },
