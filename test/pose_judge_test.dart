@@ -44,10 +44,11 @@ void main() {
       final frame = DetectionFrame(
         frameSize: kFrame,
         boxes: const <TargetBox>[],
-        personConfidence: 0,
         at: DateTime(2026),
       );
       expect(frame.ambiguous, isFalse);
+      expect(frame.hasTarget, isFalse);
+      expect(frame.targetConfidence, 0);
     });
   });
 

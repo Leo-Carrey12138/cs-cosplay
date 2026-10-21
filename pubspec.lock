@@ -320,22 +320,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "0.13.0"
-  google_mlkit_image_labeling:
-    dependency: "direct main"
-    description:
-      name: google_mlkit_image_labeling
-      sha256: "534aaf1cd20b24d84aace8d89ac5400133c1f83d4a46185919093e656969fdc9"
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.16.1"
-  google_mlkit_object_detection:
-    dependency: "direct main"
-    description:
-      name: google_mlkit_object_detection
-      sha256: dcaff09f3ee03520e0ed1e35eb127f13b33aafeccd3b21d495d03d8ca7aaceb1
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.17.1"
   google_mlkit_pose_detection:
     dependency: "direct main"
     description:

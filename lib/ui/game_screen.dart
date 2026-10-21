@@ -104,7 +104,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     try {
       await _vision.init();
     } catch (e) {
-      debugPrint('ML Kit 初始化失败: $e');
+      debugPrint('Pose 检测器初始化失败: $e');
     }
     await _initCamera();
   }
@@ -676,11 +676,22 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Widget _buildMyStatus(GameSession session) {
     final ratio = (session.myHp / Cfg.maxHp).clamp(0.0, 1.0).toDouble();
     final detection = _lastDetection;
-    final aiText = detection == null
-        ? 'AI 识别中…'
-        : (detection.personPresent
-            ? 'AI：发现目标 ${(detection.personConfidence * 100).toStringAsFixed(0)}%'
-            : 'AI：视野内无人');
+    // 姿态检测方案下的三种状态（不再有「全局 person 置信度」这种模糊说法）：
+    //   · 还没出结果          → 识别中
+    //   · 有结果但没框住准星  → 视野内无目标
+    //   · 锁定到姿态          → 已锁定目标（附带姿态得分）
+    // 歧义分支目前不可达（ML Kit Pose 单姿态），留着是为了将来换多人检测器。
+    final String aiText;
+    if (detection == null) {
+      aiText = 'AI 识别中…';
+    } else if (detection.ambiguous) {
+      aiText = 'AI：目标重叠·请手动指认';
+    } else if (!detection.hasTarget) {
+      aiText = 'AI：视野内无目标';
+    } else {
+      aiText = 'AI：已锁定目标 '
+          '${(detection.targetConfidence * 100).toStringAsFixed(0)}%';
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
