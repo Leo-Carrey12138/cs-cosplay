@@ -1,7 +1,5 @@
 import 'dart:ui';
 
-import '../app_config.dart';
-
 /// 一个检测框。坐标是「直立帧坐标系」（已考虑手机旋转，原点左上角，单位=像素）。
 class TargetBox {
   const TargetBox({
@@ -13,13 +11,17 @@ class TargetBox {
 
   final Rect rect;
 
-  /// 是否可当作「人」来瞄准（绿框）
+  /// 是否可当作「人」来瞄准（绿框）。
+  ///
+  /// 姿态检测方案下，只有「解出了人体骨架」才会产生框，所以这里恒为 true；
+  /// 保留该字段是为了让叠加层/判定层不用区分检测器来源。
   final bool isPerson;
 
-  /// 置信度。融合模式下 = Image Labeling 的 Person 置信度
+  /// 置信度（0~1）。姿态方案下 = PoseJudge 的综合姿态得分
+  /// （0.5*居中程度 + 0.3*可见点平均置信度 + 0.2*可见点占比）。
   final double confidence;
 
-  /// 模型给出的原始标签（基础模型下大概率是 Fashion goods / Home goods 之类，仅供参考）
+  /// 附加标签，仅用于叠加层显示；姿态方案下为 null。
   final String? label;
 
   @override
@@ -32,22 +34,32 @@ class DetectionFrame {
   const DetectionFrame({
     required this.frameSize,
     required this.boxes,
-    required this.personConfidence,
     required this.at,
+    this.ambiguous = false,
   });
 
   /// 直立帧尺寸（像素）。UI 用它 + 屏幕尺寸算出缩放映射。
   final Size frameSize;
 
+  /// 本帧的可瞄准目标框（0 或 1 个：ML Kit Pose 单姿态，见 VisionService 注释）。
   final List<TargetBox> boxes;
-
-  /// Image Labeling 给出的 "Person" 最高置信度
-  final double personConfidence;
 
   final DateTime at;
 
-  /// 画面里是否确实有人
-  bool get personPresent => personConfidence >= Cfg.personConfidence;
+  /// 命中准星的目标不止一个且分数接近 → 无法自动锁定，需要玩家手动指认。
+  ///
+  /// 【产品决策 #4】命中的是谁由玩家手动指认，所以本标志不改变开火流程，
+  /// 只用于 UI 文案/配色（见 PoseJudge）。
+  ///
+  /// 【注意】当前接入的 ML Kit Pose 每帧最多返回 1 个姿态，
+  /// 因此该标志在现网实现下恒为 false，要等换多姿态检测器才会生效。
+  final bool ambiguous;
+
+  bool get hasTarget => boxes.isNotEmpty;
+
+  /// 锁定目标的姿态得分；无目标时为 0。
+  double get targetConfidence =>
+      boxes.isEmpty ? 0 : boxes.first.confidence;
 
   /// 可瞄准的框（绿框）
   List<TargetBox> get targetBoxes =>
@@ -56,31 +68,5 @@ class DetectionFrame {
   @override
   String toString() =>
       'DetectionFrame(${frameSize.width.toInt()}x${frameSize.height.toInt()}, '
-      'boxes=${boxes.length}, person=${personConfidence.toStringAsFixed(2)})';
-}
-
-/// 开火判定结果（供 UI 决定提示什么）。
-enum ShotVerdict {
-  /// 没打中任何人
-  miss,
-
-  /// 打中了人，但框太小 → 超出射程
-  outOfRange,
-
-  /// 有效命中，需要弹出「击中谁」
-  hit,
-}
-
-class ShotOutcome {
-  const ShotOutcome(this.verdict, {this.screenAreaRatio = 0, this.box});
-
-  final ShotVerdict verdict;
-
-  /// person 框面积 / 屏幕总面积（0~1），用于距离估算
-  final double screenAreaRatio;
-
-  final TargetBox? box;
-
-  /// 百分比形式，方便直接显示
-  double get percent => screenAreaRatio * 100;
+      'boxes=${boxes.length}, ambiguous=$ambiguous)';
 }
