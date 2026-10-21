@@ -34,6 +34,7 @@ class DetectionFrame {
     required this.boxes,
     required this.personConfidence,
     required this.at,
+    this.ambiguous = false,
   });
 
   /// 直立帧尺寸（像素）。UI 用它 + 屏幕尺寸算出缩放映射。
@@ -45,6 +46,12 @@ class DetectionFrame {
   final double personConfidence;
 
   final DateTime at;
+
+  /// 命中准星的目标不止一个且分数接近 → 无法自动锁定，需要玩家手动指认。
+  ///
+  /// 【产品决策 #4】命中的是谁由玩家手动指认，所以本标志不改变开火流程，
+  /// 只用于 UI 文案/配色（见 PoseJudge）。默认 false，旧调用方无需改动。
+  final bool ambiguous;
 
   /// 画面里是否确实有人
   bool get personPresent => personConfidence >= Cfg.personConfidence;
