@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 
 import '../app_config.dart';
 import '../models/detection_frame.dart';
+import '../models/player.dart';
+import '../services/combat_rules.dart';
 import '../services/feedback_service.dart';
 import '../services/vision_service.dart';
 import '../state/game_session.dart';
@@ -78,6 +80,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   // ---- 阵亡锁定 ----
   bool _cameraLockedForDeath = false;
+
+  /// 防止连点「离开房间」导致连续 pop
+  bool _leavingRoom = false;
 
   StreamSubscription<int>? _damageSub;
   StreamSubscription<String>? _toastSub;
@@ -156,8 +161,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       await controller.startImageStream(_onCameraFrame);
     } on CameraException catch (e) {
       if (mounted) {
-        setState(() => _cameraError =
-            '相机不可用（${e.code}）：${e.description ?? ''}\n请检查相机权限');
+        setState(() =>
+            _cameraError = '相机不可用（${e.code}）：${e.description ?? ''}\n请检查相机权限');
       }
     } catch (e) {
       if (mounted) setState(() => _cameraError = '相机初始化失败：$e');
@@ -289,14 +294,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final until = _cooldownUntil;
     if (until == null) return 0;
     final remain = until.difference(DateTime.now()).inMilliseconds;
-    return (remain / Cfg.fireCooldown.inMilliseconds).clamp(0.0, 1.0).toDouble();
+    return (remain / Cfg.fireCooldown.inMilliseconds)
+        .clamp(0.0, 1.0)
+        .toDouble();
   }
 
   void _startCooldown() {
     _cooldownTicker?.cancel();
     setState(() => _cooldownUntil = DateTime.now().add(Cfg.fireCooldown));
-    _cooldownTicker =
-        Timer.periodic(const Duration(milliseconds: 60), (timer) {
+    _cooldownTicker = Timer.periodic(const Duration(milliseconds: 60), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
@@ -363,9 +369,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
     unawaited(_feedback.playHitMarker());
 
-    final candidates = _session.aliveTargets.take(5).toList();
+    // 目标列表只展示存活敌人；队友判定仍由服务端事务重新核对。
+    final candidates = _session.aliveEnemies.take(5).toList();
     if (candidates.isEmpty) {
-      _showToast('房间里没有其他活着的人');
+      _showHitMarker('当前没有可攻击的敌人', Colors.white70);
+      _showToast('当前没有可攻击的敌人');
       return;
     }
     if (!mounted) return;
@@ -374,16 +382,41 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       context,
       candidates: candidates,
       hitPercent: bestRatio * 100, // 交给玩家估算距离
+      serverNowMs: _session.serverNowMs,
     );
     if (target == null || !mounted) return;
 
-    final hpAfter = await _session.confirmHit(target.id);
-    if (hpAfter == null || !mounted) return;
-    _showToast(
-      hpAfter <= 0
-          ? '${target.name} 已阵亡！'
-          : '命中 ${target.name} -${Cfg.damagePerHit} HP（剩 $hpAfter）',
-    );
+    final decision = await _session.confirmHit(target.id);
+    if (!mounted) return;
+    _handleCombatDecision(decision, target);
+  }
+
+  void _handleCombatDecision(CombatDecision decision, Player target) {
+    switch (decision.outcome) {
+      case CombatOutcome.applied:
+        _showHitMarker(
+          '命中 ${target.name} -${Cfg.damagePerHit} HP（剩 ${decision.hpAfter}）',
+          const Color(0xFF00E676),
+        );
+      case CombatOutcome.killed:
+        _showHitMarker('击倒 ${target.name}！', const Color(0xFF00E676));
+        unawaited(_feedback.playHitMarker());
+      case CombatOutcome.friendlyBlocked:
+        _showHitMarker('队友免疫伤害', const Color(0xFFFFC107));
+        _showToast('队友免疫伤害');
+      case CombatOutcome.invincibleBlocked:
+        _showHitMarker('目标处于复活保护', const Color(0xFF40C4FF));
+        _showToast('目标处于复活保护');
+      case CombatOutcome.targetUnavailable:
+        _showHitMarker('目标已阵亡或已离开', Colors.white70);
+        _showToast('目标已阵亡或已离开');
+      case CombatOutcome.selfBlocked:
+        _showToast('不能攻击自己');
+      case CombatOutcome.attackerUnavailable:
+        _showToast('你已阵亡，无法开火');
+      case CombatOutcome.failed:
+        _showToast('网络异常，本次伤害未生效');
+    }
   }
 
   // ------------------------------------------------------------------
@@ -423,7 +456,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('重置游戏？'),
-        content: const Text('全房间血量恢复 100、清除阵亡状态，立刻开始下一局。'),
+        content: const Text(
+          '保留当前队伍，所有玩家满血复活，击杀数清零，立即开始新一局。',
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -437,12 +472,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       ),
     );
     if (ok == true) {
-      await _session.resetGame();
-      if (mounted) _showToast('已重置，新一局开始');
+      final resetOk = await _session.resetGame();
+      if (mounted && resetOk) _showToast('已重置，新一局开始');
     }
   }
 
   Future<void> _leaveRoom() async {
+    if (_leavingRoom) return;
+    _leavingRoom = true;
     await _session.leave();
     if (!mounted) return;
     Navigator.of(context).pop();
@@ -474,13 +511,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           // 闪光/阵亡/错误这些确实需要盖住整屏的，才放在外层。
           DamageFlashLayer(damageStream: session.onDamaged),
 
+          // 复活保护：非遮挡式提示，不挡准星、不拦截操作
+          if (!session.iAmDead) _buildInvincibleShield(session),
+
           if (session.iAmDead)
-            DeathOverlay(
-              rank: session.myRank,
-              totalPlayers: session.players.length,
-              aliveCount:
-                  session.players.values.where((p) => p.isAlive).length,
-              onLeave: _leaveRoom,
+            ValueListenableBuilder<int>(
+              valueListenable: session.respawnRemainingMs,
+              builder: (context, remaining, _) => DeathOverlay(
+                remainingMs: remaining,
+                totalMs: Cfg.respawnDelay.inMilliseconds,
+                onLeave: _leaveRoom,
+              ),
             ),
 
           if (_cameraError != null) _buildCameraError(),
@@ -515,11 +556,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 playerCount: session.players.length,
                 isHost: session.isHost,
                 onReset: _confirmReset,
+                alphaScore: session.alphaScore,
+                bravoScore: session.bravoScore,
               ),
               const SizedBox(height: 6),
               PlayerHpList(
                 players: session.sortedPlayers,
                 myId: session.playerId,
+                serverNow: () => session.serverNowMs,
               ),
               Padding(
                 padding: const EdgeInsets.only(top: 6),
@@ -600,6 +644,45 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// 复活保护倒计时：非遮挡式小胶囊，放在准星下方，不拦截触摸。
+  Widget _buildInvincibleShield(GameSession session) {
+    return ValueListenableBuilder<int>(
+      valueListenable: session.invincibleRemainingMs,
+      builder: (context, remaining, _) {
+        if (remaining <= 0) return const SizedBox.shrink();
+        final seconds = (remaining / 1000).toStringAsFixed(1);
+        return Align(
+          alignment: const Alignment(0, 0.58),
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color: const Color(0xCC06222E),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFF40C4FF), width: 1.2),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Icon(Icons.shield, size: 16, color: Color(0xFF40C4FF)),
+                  const SizedBox(width: 6),
+                  Text(
+                    '复活保护 ${seconds}s',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF40C4FF),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// 命中/脱靶提示（始终占位，null 时是空盒子）
   Widget _buildHitMarker() {
     final text = _hitMarker;
@@ -631,9 +714,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Widget _buildPreview() {
     final controller = _camera;
     final box = _previewSize();
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        box == null) {
+    if (controller == null || !controller.value.isInitialized || box == null) {
       return const ColoredBox(
         color: _kTerminalBg,
         child: Center(
@@ -855,14 +936,20 @@ class _StageFramePainter extends CustomPainter {
     canvas.drawLine(rect.topLeft, rect.topLeft + Offset(cornerLen, 0), corner);
     canvas.drawLine(rect.topLeft, rect.topLeft + Offset(0, cornerLen), corner);
     // 右上
-    canvas.drawLine(rect.topRight, rect.topRight + Offset(-cornerLen, 0), corner);
-    canvas.drawLine(rect.topRight, rect.topRight + Offset(0, cornerLen), corner);
+    canvas.drawLine(
+        rect.topRight, rect.topRight + Offset(-cornerLen, 0), corner);
+    canvas.drawLine(
+        rect.topRight, rect.topRight + Offset(0, cornerLen), corner);
     // 左下
-    canvas.drawLine(rect.bottomLeft, rect.bottomLeft + Offset(cornerLen, 0), corner);
-    canvas.drawLine(rect.bottomLeft, rect.bottomLeft + Offset(0, -cornerLen), corner);
+    canvas.drawLine(
+        rect.bottomLeft, rect.bottomLeft + Offset(cornerLen, 0), corner);
+    canvas.drawLine(
+        rect.bottomLeft, rect.bottomLeft + Offset(0, -cornerLen), corner);
     // 右下
-    canvas.drawLine(rect.bottomRight, rect.bottomRight + Offset(-cornerLen, 0), corner);
-    canvas.drawLine(rect.bottomRight, rect.bottomRight + Offset(0, -cornerLen), corner);
+    canvas.drawLine(
+        rect.bottomRight, rect.bottomRight + Offset(-cornerLen, 0), corner);
+    canvas.drawLine(
+        rect.bottomRight, rect.bottomRight + Offset(0, -cornerLen), corner);
   }
 
   @override
