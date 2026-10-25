@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../theme/csgo_theme.dart';
+
 /// 右下角开火按钮。
-/// 冷却期间灰化，并用圆环显示剩余冷却进度。
+/// 就绪时红色实心（危险/开火语义），冷却时灰化并用圆环显示剩余进度。
 class FireButton extends StatelessWidget {
   const FireButton({
     super.key,
@@ -24,81 +26,107 @@ class FireButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final active = enabled && !cooling;
-    return SizedBox(
-      width: 96,
-      height: 96,
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          // 冷却圆环
-          if (cooling)
-            SizedBox(
-              width: 96,
-              height: 96,
-              child: CircularProgressIndicator(
-                value: cooldownProgress.clamp(0.0, 1.0).toDouble(),
-                strokeWidth: 5,
-                backgroundColor: Colors.white12,
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(Color(0xFFFFC107)),
+    final bool active = enabled && !cooling;
+    final Color ring = cooling
+        ? CsColors.accentDim
+        : active
+            ? CsColors.danger
+            : CsColors.borderStrong;
+    final Color face = !enabled
+        ? CsColors.panelDeep
+        : active
+            ? const Color(0xFFA81F25)
+            : CsColors.panelRaised;
+    final Color label = active ? Colors.white : CsColors.textMuted;
+
+    return Semantics(
+      button: true,
+      enabled: active,
+      label: cooling ? '开火冷却中' : (active ? '开火' : '开火不可用'),
+      child: SizedBox(
+        width: 96,
+        height: 96,
+        child: Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            // 冷却圆环
+            if (cooling)
+              SizedBox(
+                width: 96,
+                height: 96,
+                child: CircularProgressIndicator(
+                  value: cooldownProgress.clamp(0.0, 1.0).toDouble(),
+                  strokeWidth: 3.2,
+                  backgroundColor: CsColors.border,
+                  valueColor:
+                      const AlwaysStoppedAnimation<Color>(CsColors.accent),
+                ),
+              ),
+            // 外层细环
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: CsColors.panelDeep,
+                border: Border.all(
+                  color: ring.withValues(alpha: 0.55),
+                  width: 1,
+                ),
               ),
             ),
-          Material(
-            color: Colors.transparent,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: active ? onPressed : null,
-              child: Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: active
-                      ? const RadialGradient(
-                          colors: <Color>[Color(0xFFFF5252), Color(0xFFB71C1C)],
-                        )
-                      : null,
-                  color: active ? null : const Color(0xFF3A3A3A),
-                  border: Border.all(
-                    color: active ? Colors.white70 : Colors.white24,
-                    width: 2,
+            Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: active ? onPressed : null,
+                child: Container(
+                  width: 78,
+                  height: 78,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: face,
+                    border: Border.all(color: ring, width: 2),
                   ),
-                  boxShadow: active
-                      ? <BoxShadow>[
-                          BoxShadow(
-                            color: const Color(0xFFFF5252).withAlpha(90),
-                            blurRadius: 18,
-                            spreadRadius: 2,
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    Icon(
-                      cooling ? Icons.hourglass_bottom : Icons.gps_fixed,
-                      color: active ? Colors.white : Colors.white38,
-                      size: 26,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      cooling ? '冷却' : '开火',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 2,
-                        color: active ? Colors.white : Colors.white38,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      Icon(
+                        cooling ? Icons.hourglass_bottom : Icons.gps_fixed,
+                        color: label,
+                        size: 24,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 2),
+                      Text(
+                        cooling ? '冷却' : (active ? '开火' : '待机'),
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2,
+                          color: label,
+                          height: 1.1,
+                        ),
+                      ),
+                      Text(
+                        cooling ? 'RELOAD' : (active ? 'FIRE' : 'STANDBY'),
+                        style: TextStyle(
+                          fontSize: 7.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                          color: active
+                              ? const Color(0xCCFFFFFF)
+                              : CsColors.textMuted,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

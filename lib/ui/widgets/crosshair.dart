@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// 屏幕正中央的十字准星（纯绘制，不吃点击事件）
+import '../theme/csgo_theme.dart';
+
+/// 屏幕正中央的十字准星（纯绘制，不吃点击事件）。
+///
+/// 默认沙黄色，中心 2px 红点标出实际判定点。
 class Crosshair extends StatelessWidget {
   const Crosshair({
     super.key,
-    this.color = const Color(0xFF00E676),
+    this.color = CsColors.accent,
     this.gap = 14,
     this.arm = 16,
     this.strokeWidth = 2.2,
@@ -48,11 +52,11 @@ class _CrosshairPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
 
-    // 外发光，让准星在复杂背景上也能看清
+    // 很轻的描边光晕，保证准星在复杂背景上也能看清
     final glow = Paint()
-      ..color = color.withAlpha(60)
+      ..color = color.withValues(alpha: 0.22)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth + 4
+      ..strokeWidth = strokeWidth + 3
       ..strokeCap = StrokeCap.round;
 
     final paint = Paint()
@@ -63,21 +67,33 @@ class _CrosshairPainter extends CustomPainter {
 
     // 上下左右四条短线，中间留空（不挡视线）
     final lines = <List<Offset>>[
-      [Offset(center.dx, center.dy - gap - arm), Offset(center.dx, center.dy - gap)],
-      [Offset(center.dx, center.dy + gap), Offset(center.dx, center.dy + gap + arm)],
-      [Offset(center.dx - gap - arm, center.dy), Offset(center.dx - gap, center.dy)],
-      [Offset(center.dx + gap, center.dy), Offset(center.dx + gap + arm, center.dy)],
+      [
+        Offset(center.dx, center.dy - gap - arm),
+        Offset(center.dx, center.dy - gap)
+      ],
+      [
+        Offset(center.dx, center.dy + gap),
+        Offset(center.dx, center.dy + gap + arm)
+      ],
+      [
+        Offset(center.dx - gap - arm, center.dy),
+        Offset(center.dx - gap, center.dy)
+      ],
+      [
+        Offset(center.dx + gap, center.dy),
+        Offset(center.dx + gap + arm, center.dy)
+      ],
     ];
     for (final line in lines) {
       canvas.drawLine(line[0], line[1], glow);
       canvas.drawLine(line[0], line[1], paint);
     }
 
-    // 中心 2px 红点：判定点就是它
+    // 中心 1.8px 红点：判定点就是它
     canvas.drawCircle(
       center,
-      1.6,
-      Paint()..color = const Color(0xFFFF5252),
+      1.8,
+      Paint()..color = CsColors.danger,
     );
   }
 
