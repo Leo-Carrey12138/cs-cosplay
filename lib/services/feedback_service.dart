@@ -27,7 +27,7 @@ class FeedbackService {
       debugPrint('音频初始化失败: $e');
     }
     try {
-      _vibrationSupported = (await Vibration.hasVibrator()) ?? false;
+      _vibrationSupported = await Vibration.hasVibrator();
     } catch (_) {
       _vibrationSupported = false;
     }
@@ -60,7 +60,7 @@ class FeedbackService {
   Future<void> vibrateDamage() async {
     if (!_vibrationSupported) return;
     try {
-      final amplitude = (await Vibration.hasAmplitudeControl()) ?? false;
+      final amplitude = await Vibration.hasAmplitudeControl();
       if (amplitude) {
         // Android 8.0+ 能用振幅，直接拉满，手感更"强烈"
         Vibration.vibrate(
