@@ -18,6 +18,7 @@ import 'widgets/fire_button.dart';
 import 'widgets/kill_feed.dart';
 import 'widgets/player_hp_list.dart';
 import 'widgets/target_picker.dart';
+import 'widgets/zoom_controls.dart';
 
 /// 战术终端风配色：深色底 + 荧光绿细线。
 const Color _kTerminalBg = Color(0xFF0B0F12);
@@ -38,6 +39,34 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   final FeedbackService _feedback = FeedbackService();
 
   CameraController? _camera;
+  int _cameraGeneration = 0;
+  int _detectionGeneration = 0;
+  bool _foreground = true;
+  Future<void> _cameraQueue = Future<void>.value();
+  double _zoom = 1.0;
+  double _maxZoom = 1.0;
+  bool _zoomReady = false;
+  bool _zoomBusy = false;
+  DateTime? _acceptFramesAfter;
+
+  // 序列化初始化、变焦和释放，避免原生相机调用与 dispose 交叉。
+  Future<void> _queueCamera(Future<void> Function() action) {
+    final next = _cameraQueue.then((_) => action());
+    _cameraQueue = next.catchError((Object e) {
+      debugPrint('相机操作失败: $e');
+    });
+    return _cameraQueue;
+  }
+
+  bool _isCurrent(int generation) =>
+      mounted && _foreground && generation == _cameraGeneration;
+
+  void _invalidateDetection() {
+    _detectionGeneration++;
+    _lastDetection = null;
+    _lastAnalyzeAt = null;
+  }
+
   int _sensorOrientation = 90;
   String? _cameraError;
 
@@ -101,21 +130,52 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Future<void> _bootstrap() async {
     await _feedback.init();
+    if (!mounted) return;
     try {
       await _vision.init();
     } catch (e) {
       debugPrint('Pose 检测器初始化失败: $e');
     }
-    await _initCamera();
+    if (mounted && _foreground) await _initCamera();
   }
 
   // ------------------------------------------------------------------
   // 相机
   // ------------------------------------------------------------------
 
-  Future<void> _initCamera() async {
+  Future<void> _initCamera() {
+    final generation = ++_cameraGeneration;
+    return _queueCamera(() => _openCamera(generation));
+  }
+
+  Future<void> _disposeController(CameraController? controller) async {
+    if (controller == null) return;
+    try {
+      if (controller.value.isStreamingImages) await controller.stopImageStream();
+    } catch (_) {}
+    try {
+      await controller.dispose();
+    } catch (e) {
+      debugPrint('释放相机失败: $e');
+    }
+  }
+
+  Future<void> _openCamera(int generation) async {
+    if (!_isCurrent(generation)) return;
+    final previous = _camera;
+    setState(() {
+      _camera = null;
+      _zoomReady = false;
+      _zoomBusy = false;
+      _zoom = 1.0;
+      _maxZoom = 1.0;
+      _invalidateDetection();
+    });
+    await _disposeController(previous);
+    CameraController? pending;
     try {
       final cameras = await availableCameras();
+      if (!_isCurrent(generation)) return;
       if (cameras.isEmpty) {
         if (mounted) setState(() => _cameraError = '没有找到可用的摄像头');
         return;
@@ -135,7 +195,23 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         // 的 NV21 交给 Dart，正好能零拷贝喂给 ML Kit。
         imageFormatGroup: ImageFormatGroup.nv21,
       );
+      pending = controller;
       await controller.initialize();
+      if (!_isCurrent(generation)) return;
+      var maxZoom = 1.0;
+      var zoomReady = false;
+      try {
+        final minimum = await controller.getMinZoomLevel();
+        final maximum = await controller.getMaxZoomLevel();
+        if (minimum.isFinite && maximum.isFinite &&
+            minimum <= 1.0 && maximum >= 1.0) {
+          await controller.setZoomLevel(1.0);
+          maxZoom = maximum;
+          zoomReady = true;
+        }
+      } catch (e) {
+        debugPrint('变焦初始化失败（保留相机预览）: $e');
+      }
 
       // 一次性诊断：确认 CameraX 实际给了多少分辨率（ResolutionPreset 只是"目标"，
       // CameraX 会按设备能力回落到最接近的较低档，所以必须以运行时日志为准）。
@@ -144,24 +220,79 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           'sensorOrientation=$_sensorOrientation '
           'preset=$_resolutionPreset');
 
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
+      if (!_isCurrent(generation)) return;
       setState(() {
         _camera = controller;
         _cameraError = null;
+        _zoom = 1.0;
+        _maxZoom = maxZoom;
+        _zoomReady = zoomReady;
       });
       _loggedFirstFrame = false; // 每次重开相机都重新打一次分辨率
-      await controller.startImageStream(_onCameraFrame);
+      await controller.startImageStream((image) {
+        if (_isCurrent(generation)) unawaited(_onCameraFrame(image));
+      });
+      if (!_isCurrent(generation)) return;
+      if (_session.iAmDead) {
+        await controller.stopImageStream();
+        await controller.pausePreview();
+      }
+      pending = null;
     } on CameraException catch (e) {
-      if (mounted) {
+      if (_isCurrent(generation)) {
         setState(() => _cameraError =
             '相机不可用（${e.code}）：${e.description ?? ''}\n请检查相机权限');
       }
     } catch (e) {
-      if (mounted) setState(() => _cameraError = '相机初始化失败：$e');
+      if (_isCurrent(generation)) {
+        setState(() => _cameraError = '相机初始化失败：$e');
+      }
+    } finally {
+      if (pending != null) {
+        if (identical(_camera, pending)) {
+          _camera = null;
+          _zoomReady = false;
+          if (mounted) setState(() {});
+        }
+        await _disposeController(pending);
+      }
     }
+  }
+
+  bool get _canZoom => _foreground && _zoomReady && !_zoomBusy &&
+      !_session.iAmDead && _cameraError == null &&
+      (_camera?.value.isInitialized ?? false);
+
+  Future<void> _changeZoom(double delta) async {
+    if (!_canZoom) return;
+    final controller = _camera!;
+    final generation = _cameraGeneration;
+    final target = (_zoom + delta).clamp(1.0, _maxZoom).toDouble();
+    if (target == _zoom) return;
+    setState(() {
+      _zoomBusy = true;
+      _invalidateDetection();
+    });
+    await _queueCamera(() async {
+      try {
+        if (!_isCurrent(generation)) return;
+        await controller.setZoomLevel(target);
+        if (!_isCurrent(generation)) return;
+        setState(() => _zoom = target);
+      } catch (e) {
+        if (_isCurrent(generation)) _showToast('变焦失败，请重试');
+        debugPrint('变焦失败: $e');
+      } finally {
+        if (_isCurrent(generation)) {
+          setState(() {
+            _zoomBusy = false;
+            // 丢弃切换前的推理以及管线内可能残留的旧帧。
+            _invalidateDetection();
+            _acceptFramesAfter = DateTime.now().add(Cfg.detectInterval);
+          });
+        }
+      }
+    });
   }
 
   Future<void> _stopCameraStream() async {
@@ -187,7 +318,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           'expectNv21Bytes=$expected');
     }
 
+    if (!mounted || !_foreground || _zoomBusy || _session.iAmDead || _camera == null) return;
+    if (_acceptFramesAfter != null && DateTime.now().isBefore(_acceptFramesAfter!)) return;
     if (_analyzing) return;
+    final generation = _detectionGeneration;
     final now = DateTime.now();
     final last = _lastAnalyzeAt;
     if (last != null && now.difference(last) < Cfg.detectInterval) return;
@@ -196,7 +330,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _lastAnalyzeAt = now;
     try {
       final frame = await _vision.analyze(image, _sensorOrientation);
-      if (!mounted || frame == null) return;
+      if (!mounted || frame == null || generation != _detectionGeneration ||
+          !_foreground || _session.iAmDead) return;
       setState(() => _lastDetection = frame);
     } catch (e) {
       debugPrint('本地推理失败: $e');
@@ -231,18 +366,23 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _camera;
-    if (controller == null || !controller.value.isInitialized) return;
-
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      unawaited(() async {
-        await _stopCameraStream();
-        await controller.dispose();
-        if (mounted) setState(() => _camera = null);
-      }());
-    } else if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed) {
+      _foreground = true;
       unawaited(_initCamera());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _foreground = false;
+      ++_cameraGeneration;
+      final controller = _camera;
+      setState(() {
+        _camera = null;
+        _zoomReady = false;
+        _zoomBusy = false;
+        _invalidateDetection();
+      });
+      unawaited(_queueCamera(() => _disposeController(controller)));
     }
   }
 
@@ -253,10 +393,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   void _onSessionChanged() {
     if (_session.iAmDead && !_cameraLockedForDeath) {
       _cameraLockedForDeath = true;
-      unawaited(_lockCamera());
+      _invalidateDetection();
+      unawaited(_queueCamera(_lockCamera));
     } else if (!_session.iAmDead && _cameraLockedForDeath) {
       _cameraLockedForDeath = false;
-      unawaited(_unlockCamera());
+      unawaited(_queueCamera(_unlockCamera));
     }
   }
 
@@ -274,7 +415,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (controller == null || !controller.value.isInitialized) return;
     try {
       await controller.resumePreview();
-      await controller.startImageStream(_onCameraFrame);
+      final generation = _cameraGeneration;
+      await controller.startImageStream((image) {
+        if (_isCurrent(generation)) unawaited(_onCameraFrame(image));
+      });
     } catch (_) {}
   }
 
@@ -311,7 +455,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _fire() async {
-    if (_session.iAmDead) return;
+    if (_session.iAmDead || !_foreground || _zoomBusy || _camera == null) return;
     if (_cooling) return;
 
     _startCooldown();
@@ -568,7 +712,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// 下黑边面板：我的血量 + 开火按钮。
+  /// 下黑边面板：我的血量 + 变焦控件 + 开火按钮。
   Widget _buildBottomTerminal(GameSession session) {
     return Container(
       decoration: const BoxDecoration(
@@ -584,14 +728,28 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-              Expanded(child: _buildMyStatus(session)),
+              Expanded(child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildMyStatus(session),
+                  const SizedBox(height: 4),
+                  ZoomControls(
+                    zoom: _zoom,
+                    maxZoom: _maxZoom,
+                    enabled: _canZoom,
+                    onDecrease: () => unawaited(_changeZoom(-0.5)),
+                    onIncrease: () => unawaited(_changeZoom(0.5)),
+                  ),
+                ],
+              )),
               const SizedBox(width: 10),
               if (!session.iAmDead)
                 FireButton(
                   onPressed: _fire,
                   cooling: _cooling,
                   cooldownProgress: _cooldownProgress,
-                  enabled: _camera != null,
+                  enabled: _camera != null && _foreground && !_zoomBusy,
                 ),
             ],
           ),
@@ -796,18 +954,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _cooldownTicker?.cancel();
     _hitMarkerTimer?.cancel();
 
+    _foreground = false;
+    ++_cameraGeneration;
+    _invalidateDetection();
     final controller = _camera;
     _camera = null;
-    if (controller != null) {
-      unawaited(() async {
-        try {
-          if (controller.value.isStreamingImages) {
-            await controller.stopImageStream();
-          }
-        } catch (_) {}
-        await controller.dispose();
-      }());
-    }
+    unawaited(_queueCamera(() => _disposeController(controller)));
     unawaited(_vision.dispose());
     unawaited(_feedback.dispose());
     // 离开房间：立即从数据库移除自己（掉线则由 onDisconnect 兜底）
