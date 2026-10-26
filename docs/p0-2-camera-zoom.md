@@ -30,7 +30,7 @@
 
 `84d9c5b6f5333c37ecbbaee8f5a2ad70f6d688a46d57c8d2a2254b058fe03627`
 
-当前聊天输出目录不可写；向 GitHub 草稿 Release 上传二进制被自动审批拦截，正等待用户明确授权，尚未提供下载附件。取得下载后可传到 Android 手机安装，无需使用 VS Code 或在手机配置 Flutter。安装完成后进入同一房间，按下列步骤测试；APK 构建/签名通过不代表这些真机项目已经通过。
+用户已明确授权上传。已创建[草稿 Release](https://github.com/Leo-Carrey12138/cs-cosplay/releases/tag/untagged-3b14ceaa03500ff4c461)，但 `uploads.github.com` 附件接口连续返回 `401 Bad credentials`；首次检查时仓库/API 可用，随后 Git CLI/CLI API 凭据也失效；GitHub 连接器仍可维护文档和 PR。草稿当前没有附件，尚无可用 APK 下载链接。APK 保留在云端 `build/app/outputs/flutter-apk/app-release.apk`；需要恢复附件接口的有效认证后继续上传，不需要再次征求上传许可。取得下载后可传到 Android 手机安装，无需使用 VS Code 或在手机配置 Flutter。安装完成后进入同一房间，按下列步骤测试；APK 构建/签名通过不代表这些真机项目已经通过。
 
 ## Android 真机步骤（尚未执行）
 
