@@ -21,8 +21,21 @@
             },
             "joinedAt": {
               ".validate": "newData.val() === null || newData.isNumber()"
+            },
+            "team": {
+              ".validate": "newData.val() === null || newData.val() === 'alpha' || newData.val() === 'bravo'"
+            },
+            "kills": {
+              ".validate": "newData.val() === null || (newData.isNumber() && newData.val() >= 0 && newData.val() % 1 === 0)"
+            },
+            "invincibleUntil": {
+              ".validate": "newData.val() === null || newData.isNumber()"
             }
           }
+        },
+
+        "status": {
+          ".validate": "newData.val() === null || newData.val() === 'lobby' || newData.val() === 'playing'"
         },
 
         "feed": {

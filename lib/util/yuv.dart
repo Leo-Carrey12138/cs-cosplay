@@ -47,10 +47,10 @@ Uint8List? toNv21(CameraImage image) {
   var uvPos = ySize;
   for (var row = 0; row < uvRows; row++) {
     for (var col = 0; col < uvCols; col++) {
-            final vi = row * vPlane.bytesPerRow + col * 2;
+      final vi = row * vPlane.bytesPerRow + col * 2;
       final ui = row * uPlane.bytesPerRow + col * 2;
-      final v = (vi >= 0 && vi < vPlane.bytes.length) ? (vPlane.bytes[vi] as int) : 128;
-      final u = (ui >= 0 && ui < uPlane.bytes.length) ? (uPlane.bytes[ui] as int) : 128;
+      final v = (vi >= 0 && vi < vPlane.bytes.length) ? vPlane.bytes[vi] : 128;
+      final u = (ui >= 0 && ui < uPlane.bytes.length) ? uPlane.bytes[ui] : 128;
       if (uvPos + 1 >= out.length) break;
       out[uvPos++] = v;
       out[uvPos++] = u;

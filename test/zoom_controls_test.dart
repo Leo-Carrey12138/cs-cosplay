@@ -7,13 +7,19 @@ void main() {
     var increases = 0;
     var decreases = 0;
     Future<void> show(double zoom, double max, bool enabled) async {
-      await tester.pumpWidget(MaterialApp(home: Scaffold(body: ZoomControls(
-        zoom: zoom,
-        maxZoom: max,
-        enabled: enabled,
-        onDecrease: () => decreases++,
-        onIncrease: () => increases++,
-      ))));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ZoomControls(
+              zoom: zoom,
+              maxZoom: max,
+              enabled: enabled,
+              onDecrease: () => decreases++,
+              onIncrease: () => increases++,
+            ),
+          ),
+        ),
+      );
     }
 
     IconButton button(String tooltip) => tester.widget<IconButton>(

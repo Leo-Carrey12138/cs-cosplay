@@ -9,8 +9,32 @@ class Cfg {
   /// 满血值
   static const int maxHp = 100;
 
-  /// 每次确认命中扣多少血
-  static const int damagePerHit = 20;
+  /// 每次确认命中扣多少血（100 HP 四枪击倒）
+  static const int damagePerHit = 25;
+
+  // ---------------- 小队 / 对局 ----------------
+  /// 每个小队人数上限（两队合计仍受 maxPlayers 限制）
+  static const int teamCapacity = 3;
+
+  /// 房间状态：备战大厅
+  static const String roomStatusLobby = 'lobby';
+
+  /// 房间状态：对战进行中
+  static const String roomStatusPlaying = 'playing';
+
+  // ---------------- 阵亡 / 复活 ----------------
+  /// 阵亡后自动复活的等待时长（从死亡时刻算起）
+  static const Duration respawnDelay = Duration(seconds: 5);
+
+  /// 复活成功后的无敌保护时长
+  static const Duration respawnInvincible = Duration(seconds: 2);
+
+  /// 无敌时间戳最多允许超前 serverNow 这么多毫秒。
+  ///
+  /// 正常保护只有 [respawnInvincible]（2 秒）。若设备时钟严重漂移或
+  /// serverTimeOffset 拿不到，invincibleUntil 可能看起来远在未来；
+  /// 超过这个窗口就判定为时钟异常、视为保护已结束，避免「永久无敌」。
+  static const int maxInvincibleSkewMs = 10000;
 
   // ---------------- 本地 AI ----------------
   /// 抽帧间隔：200ms 一帧（≈5 FPS）。ML Kit Pose（base 模型）单帧推理约
@@ -63,7 +87,7 @@ class Cfg {
 
   // ---------------- 命中判定 ----------------
   /// person 框占屏幕总面积低于该比例 = 超出射程（不弹选人框）
-  static const double minTargetAreaRatio = 0.005; 
+  static const double minTargetAreaRatio = 0.005;
 
   // ---------------- 节奏 ----------------
   /// 开火冷却

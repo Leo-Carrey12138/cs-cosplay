@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../app_config.dart';
 import '../state/game_session.dart';
-import 'game_screen.dart';
+import 'lobby_screen.dart';
 
 /// 进入页：昵称 + 4 位房间号 → 加入（房间不存在会自动创建）
 class JoinScreen extends StatefulWidget {
@@ -53,10 +53,10 @@ class _JoinScreenState extends State<JoinScreen> {
     setState(() => _submitting = false);
 
     if (ok) {
-      // 用 push 而不是 pushReplacement：这样战场上点"离开房间"能 pop 回本页。
-      // 如果用 pushReplacement，GameScreen 就是栈底，pop 之后就只剩黑屏了。
+      // 先进入备战大厅。大厅在房主开始后会用 pushReplacement 切到战场，
+      // 所以战场里点"离开房间"仍然 pop 回本页，不会出现黑屏。
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const GameScreen()),
+        MaterialPageRoute<void>(builder: (_) => const LobbyScreen()),
       );
     } else {
       _showError(session.errorMessage ?? '加入失败，检查网络与 Firebase 配置');
@@ -100,10 +100,10 @@ class _JoinScreenState extends State<JoinScreen> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(
+                const Text(
                   '摄像头 + 本地 AI 识别 + 实时房间 · 单房最多 ${Cfg.maxPlayers} 人',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                  style: TextStyle(color: Colors.white54, fontSize: 13),
                 ),
                 const SizedBox(height: 36),
                 TextField(
@@ -189,9 +189,11 @@ class _RulesCard extends StatelessWidget {
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('玩法：用摄像头对准对手，准星落在绿色人形框内 → 开火 → 选择你打到的人。',
+          Text('玩法：用摄像头对准对手，准星落在绿色人形框内 → 开火 → 选择你打到的人。', style: style),
+          Text('· 进入房间后先分队：ALPHA / BRAVO，每队最多 ${Cfg.teamCapacity} 人',
               style: style),
-          Text('· 每次命中 -${Cfg.damagePerHit} HP，冷却 1 秒', style: style),
+          Text('· 每次命中 -${Cfg.damagePerHit} HP，击倒敌人 +1 击杀', style: style),
+          Text('· 阵亡 5 秒后自动复活，复活后 2 秒无敌', style: style),
           Text('· 目标太小（< 屏幕 3%）判定为超出射程', style: style),
           Text('· 血量由服务端事务扣减，本地改不了分', style: style),
         ],
