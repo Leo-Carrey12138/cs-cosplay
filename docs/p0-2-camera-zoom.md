@@ -13,16 +13,24 @@
 
 ## 自动化检查（本次 Review 修订）
 
-环境：Flutter 3.47.8 / Dart 3.13.7；原 pubspec.lock，通过镜像按锁文件解析，无依赖升级。
+环境：Flutter 3.47.8 / Dart 3.13.7 / Temurin JDK 17.0.21；原 pubspec.lock，通过镜像按锁文件解析，无依赖升级。
 
 - `flutter pub get --enforce-lockfile`：通过。
 - `flutter analyze --no-pub`：通过，No issues found。
 - `flutter test --no-pub`：45 项通过，包含 pose、combat、team、zoom 控件、相机调用队列和 FrameMapper。
 - 队列测试覆盖变焦未完成时不能释放、释放后再重开，以及失败不阻断后续释放；控件测试覆盖倍率、上下限、不可用状态和回调；坐标测试覆盖原生变焦后的框与带黑边预览的准星映射。这些测试不模拟完整原生相机/ML Kit/Firebase 链路。
-- `flutter build apk --release --no-pub`：正在验证，结果以 PR 最新描述为准。
+- `flutter build apk --release --no-pub`：通过，生成 94.3 MB APK；`apksigner verify --verbose` 通过（v2 签名）。沿用项目现有调试签名，用于本轮测试。
 - `git diff --check`：通过。
 
-网络/工具恢复：命令启用网络权限后 Git 和 SDK 下载恢复；Flutter、Android、Gradle 缓存均使用工作区，抑制工具分析上报，Java 通过环境代理下载构建依赖。此前缺少 SDK 的失败记录不代表本轮检查结果。
+网络/工具恢复：命令启用网络权限后 Git 和 SDK 下载恢复；Flutter、Android、Gradle 缓存均使用工作区，抑制工具分析上报，Java 通过环境代理下载构建依赖。安装完整 JDK 解决系统仅有 JRE、缺少 javac 的问题；使用系统 CA 信任库。Maven 镜像 502 时，未提交的 Gradle 初始化脚本将官方仓库置前；停止旧编译进程、将云端 Gradle 堆限制为 3 GB、工作线程限制为 2，解决 8 GB 环境的 OOM。项目构建文件、依赖与锁文件未变。此前缺少 SDK 的失败记录不代表本轮检查结果。
+
+## APK 交付
+
+交付文件 `p0-2-camera-zoom-release.apk`，应用代码来自合并提交 `bad0e9d`（后续提交仅补本文档）。SHA-256：
+
+`84d9c5b6f5333c37ecbbaee8f5a2ad70f6d688a46d57c8d2a2254b058fe03627`
+
+可将 APK 下载后传到 Android 手机安装，无需使用 VS Code 或在手机配置 Flutter。安装完成后进入同一房间，按下列步骤测试；APK 构建/签名通过不代表这些真机项目已经通过。
 
 ## Android 真机步骤（尚未执行）
 
