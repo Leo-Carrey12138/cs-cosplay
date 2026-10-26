@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'state/game_session.dart';
 import 'ui/join_screen.dart';
+import 'ui/theme/csgo_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +17,16 @@ Future<void> main() async {
   );
   // 全屏沉浸，准星和绿框尽量占满画面
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  // 系统栏临时滑出时也保持深色底 + 浅色图标，和战术终端主题一致
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: CsColors.bg,
+      systemNavigationBarIconBrightness: Brightness.light,
+      systemNavigationBarDividerColor: CsColors.border,
+    ),
+  );
 
   // 读取 android/app/google-services.json
   await Firebase.initializeApp();
@@ -33,15 +44,7 @@ class CsCosplayApp extends StatelessWidget {
       child: MaterialApp(
         title: '真人 CS',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.dark,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF00E676),
-            brightness: Brightness.dark,
-          ),
-          scaffoldBackgroundColor: const Color(0xFF0B0F12),
-        ),
+        theme: buildCsgoTheme(),
         home: const JoinScreen(),
       ),
     );

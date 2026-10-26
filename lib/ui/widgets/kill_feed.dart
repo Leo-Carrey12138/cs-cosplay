@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/feed_item.dart';
+import '../theme/csgo_theme.dart';
 
 /// 战报：谁打了谁。被打的人也能从这里看到凶手是谁。
 class KillFeed extends StatelessWidget {
@@ -19,16 +20,19 @@ class KillFeed extends StatelessWidget {
             .map(
               (item) => Container(
                 margin: const EdgeInsets.only(bottom: 3),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0x99000000),
-                  borderRadius: BorderRadius.circular(6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: const BoxDecoration(
+                  color: Color(0xCC1B1E19),
+                  border: Border(
+                    left: BorderSide(color: CsColors.accentDim, width: 2),
+                  ),
                 ),
                 child: Text(
                   item.text,
                   style: const TextStyle(
-                    fontSize: 11.5,
-                    color: Color(0xFFFFAB91),
+                    fontSize: 11,
+                    height: 1.35,
+                    color: CsColors.text,
                   ),
                 ),
               ),

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/csgo_theme.dart';
+
 /// 固定在下方终端面板，不遮挡预览、准星或射击按钮。
 class ZoomControls extends StatelessWidget {
   const ZoomControls({
@@ -21,15 +23,16 @@ class ZoomControls extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFF00E676)),
-        borderRadius: BorderRadius.circular(8),
+        color: CsColors.panelDeep,
+        border: Border.all(color: CsColors.borderStrong),
+        borderRadius: BorderRadius.circular(1),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           IconButton(
             tooltip: '缩小',
-            color: const Color(0xFF00E676),
+            color: CsColors.accent,
             onPressed: enabled && zoom > 1.0 ? onDecrease : null,
             icon: const Icon(Icons.remove),
           ),
@@ -40,15 +43,16 @@ class ZoomControls extends StatelessWidget {
                 '${zoom.toStringAsFixed(1)}x',
                 semanticsLabel: '当前变焦 ${zoom.toStringAsFixed(1)} 倍',
                 style: const TextStyle(
-                  color: Color(0xFF00E676),
-                  fontWeight: FontWeight.w700,
+                  color: CsColors.accent,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.6,
                 ),
               ),
             ),
           ),
           IconButton(
             tooltip: '放大',
-            color: const Color(0xFF00E676),
+            color: CsColors.accent,
             onPressed: enabled && zoom < maxZoom ? onIncrease : null,
             icon: const Icon(Icons.add),
           ),

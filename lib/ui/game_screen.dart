@@ -11,8 +11,9 @@ import '../services/combat_rules.dart';
 import '../services/feedback_service.dart';
 import '../services/vision_service.dart';
 import '../state/game_session.dart';
-import '../util/frame_mapper.dart';
 import '../util/camera_work_queue.dart';
+import '../util/frame_mapper.dart';
+import 'theme/csgo_theme.dart';
 import 'widgets/crosshair.dart';
 import 'widgets/damage_flash.dart';
 import 'widgets/death_overlay.dart';
@@ -23,9 +24,9 @@ import 'widgets/player_hp_list.dart';
 import 'widgets/target_picker.dart';
 import 'widgets/zoom_controls.dart';
 
-/// 战术终端风配色：深色底 + 荧光绿细线。
-const Color _kTerminalBg = Color(0xFF0B0F12);
-const Color _kTerminalAccent = Color(0xFF00E676);
+/// 战术终端风配色：深橄榄灰底 + 沙黄细线。
+const Color _kTerminalBg = CsColors.bg;
+const Color _kTerminalAccent = CsColors.accent;
 
 /// 主战场：相机预览（contain，完整不裁切）+ 准星 + 绿框 + 开火按钮。
 class GameScreen extends StatefulWidget {
@@ -106,7 +107,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   // ---- 命中提示 ----
   String? _hitMarker;
-  Color _hitMarkerColor = Colors.white;
+  Color _hitMarkerColor = CsColors.text;
   Timer? _hitMarkerTimer;
 
   // ---- 阵亡锁定 ----
@@ -536,7 +537,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     final detection = _lastDetection;
     if (detection == null) {
-      _showHitMarker('还没识别到画面', Colors.amber);
+      _showHitMarker('还没识别到画面', CsColors.warning);
       return;
     }
 
@@ -560,7 +561,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     if (bestBox == null) {
-      _showHitMarker('脱靶', Colors.white);
+      _showHitMarker('脱靶', CsColors.text);
       return;
     }
 
@@ -568,7 +569,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (bestRatio < Cfg.minTargetAreaRatio) {
       _showHitMarker(
         '超出射程（${(bestRatio * 100).toStringAsFixed(1)}%）',
-        Colors.orange,
+        CsColors.warning,
       );
       return;
     }
@@ -576,7 +577,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     // ---- hit_success ----
     _showHitMarker(
       '命中！目标占屏 ${(bestRatio * 100).toStringAsFixed(1)}%',
-      const Color(0xFF00E676),
+      CsColors.accent,
     );
     unawaited(_feedback.playHitMarker());
 
@@ -665,7 +666,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           content: Text(message),
           duration: const Duration(milliseconds: 1600),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xE6151B21),
+          backgroundColor: CsColors.panelRaised,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(2)),
+            side: BorderSide(color: CsColors.borderStrong),
+          ),
         ),
       );
   }
@@ -755,12 +760,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   // 三段式布局
   // ------------------------------------------------------------------
 
-  /// 上黑边面板：房间信息 + 全员血条 + 战报。
+  /// 上终端面板：房间信息 + 全员血条 + 战报。
   Widget _buildTopTerminal(GameSession session) {
     return Container(
       decoration: const BoxDecoration(
-        color: _kTerminalBg,
-        border: Border(bottom: BorderSide(color: _kTerminalAccent, width: 1.5)),
+        color: CsColors.panel,
+        border: Border(
+          bottom: BorderSide(color: CsColors.borderStrong),
+        ),
       ),
       child: SafeArea(
         bottom: false,
@@ -798,7 +805,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// 相机区：预览用 contain 完整显示，四周黑边即 #0B0F12。
+  /// 相机区：预览用 contain 完整显示，四周留白即 #171A16。
   ///
   /// 这里用 LayoutBuilder 取到的是**预览区**尺寸并写进 _viewSize，
   /// 绿框叠加和开火判定的 FrameMapper 都用它 —— 不能再用整屏尺寸，
@@ -831,17 +838,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// 下黑边面板：我的血量 + 变焦控件 + 开火按钮。
+  /// 下终端面板：我的血量 + 变焦控件 + 开火按钮。
   Widget _buildBottomTerminal(GameSession session) {
     return Container(
       decoration: const BoxDecoration(
-        color: _kTerminalBg,
-        border: Border(top: BorderSide(color: _kTerminalAccent, width: 1.5)),
+        color: CsColors.panel,
+        border: Border(
+          top: BorderSide(color: CsColors.borderStrong),
+        ),
       ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 18, 22),
+          padding: const EdgeInsets.fromLTRB(14, 10, 16, 18),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
@@ -924,20 +933,27 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       alignment: const Alignment(0, -0.42),
       child: IgnorePointer(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
-            color: const Color(0xB3000000),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: _hitMarkerColor, width: 1.5),
+            color: const Color(0xE61B1E19),
+            borderRadius: BorderRadius.circular(1),
+            border: Border.all(color: _hitMarkerColor),
           ),
-          child: Text(
-            text,
-            style: TextStyle(
-              color: _hitMarkerColor,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(width: 3, height: 14, color: _hitMarkerColor),
+              const SizedBox(width: 8),
+              Text(
+                text,
+                style: TextStyle(
+                  color: _hitMarkerColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -975,7 +991,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// 画面四周的荧光绿细线描边（战术终端感）。
+  /// 画面四周的沙黄细线描边（战术终端感）。
   /// 复用 FrameMapper 的 contain 几何，所以描边永远贴着画面真实边缘。
   Widget _buildStageFrame(Size frame) {
     return IgnorePointer(
@@ -989,6 +1005,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// 左下角：我的名字 / 血量 / AI 状态
   Widget _buildMyStatus(GameSession session) {
     final ratio = (session.myHp / Cfg.maxHp).clamp(0.0, 1.0).toDouble();
+    final hpColor = csgoHpColor(ratio, alive: !session.iAmDead);
     final detection = _lastDetection;
     // 姿态检测方案下的三种状态（不再有「全局 person 置信度」这种模糊说法）：
     //   · 还没出结果          → 识别中
@@ -1008,13 +1025,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           '${(detection.targetConfidence * 100).toStringAsFixed(0)}%';
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xB3000000),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white24),
-      ),
+    return CsgoPanel(
+      accentBar: true,
+      color: const Color(0xF21B1E19),
+      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -1027,44 +1041,54 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                    color: CsColors.textStrong,
                   ),
                 ),
               ),
               Text(
                 '${session.myHp} HP',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w900,
-                  color: ratio > 0.6
-                      ? const Color(0xFF00E676)
-                      : ratio > 0.3
-                      ? const Color(0xFFFFC107)
-                      : const Color(0xFFFF5252),
+                  letterSpacing: 0.5,
+                  color: hpColor,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: ratio,
-              minHeight: 8,
-              backgroundColor: Colors.white12,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                ratio > 0.6
-                    ? const Color(0xFF00E676)
-                    : ratio > 0.3
-                    ? const Color(0xFFFFC107)
-                    : const Color(0xFFFF5252),
-              ),
-            ),
+          LinearProgressIndicator(
+            value: ratio,
+            minHeight: 7,
+            backgroundColor: CsColors.border,
+            valueColor: AlwaysStoppedAnimation<Color>(hpColor),
           ),
           const SizedBox(height: 6),
-          Text(
-            aiText,
-            style: const TextStyle(fontSize: 11, color: Colors.white60),
+          Row(
+            children: <Widget>[
+              Container(
+                width: 4,
+                height: 4,
+                color: detection?.hasTarget == true
+                    ? CsColors.accent
+                    : CsColors.textMuted,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  aiText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    letterSpacing: 0.3,
+                    color: CsColors.textMuted,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1073,34 +1097,53 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Widget _buildCameraError() {
     return ColoredBox(
-      color: const Color(0xCC000000),
+      color: const Color(0xF2171A16),
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.no_photography_outlined,
-                size: 56,
-                color: Colors.orange,
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: CsgoPanel(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: CsgoTag(
+                      label: 'CAMERA OFFLINE',
+                      color: CsColors.danger,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Icon(
+                    Icons.no_photography_outlined,
+                    size: 46,
+                    color: CsColors.danger,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _cameraError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      height: 1.6,
+                      color: CsColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: () {
+                      setState(() => _cameraError = null);
+                      unawaited(_initCamera());
+                    },
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('重试'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 14),
-              Text(
-                _cameraError!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 15, height: 1.6),
-              ),
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                onPressed: () {
-                  setState(() => _cameraError = null);
-                  unawaited(_initCamera());
-                },
-                icon: const Icon(Icons.refresh),
-                label: const Text('重试'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1137,7 +1180,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 }
 
-/// 画面四周的荧光绿细线描边 + 四角短线，做出"战术终端取景框"的味道。
+/// 画面四周的沙黄细线描边 + 四角短线，做出"战术终端取景框"的味道。
 ///
 /// 边框位置由 FrameMapper（contain 几何）算出来，和 FittedBox(contain)
 /// 摆放画面的规则完全一致，所以描边永远正好压在画面边缘上。
@@ -1159,15 +1202,15 @@ class _StageFramePainter extends CustomPainter {
       rect,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..color = _kTerminalAccent.withValues(alpha: 0.75),
+        ..strokeWidth = 1
+        ..color = _kTerminalAccent.withValues(alpha: 0.55),
     );
 
     // 四角加粗短线，强调取景框
     final cornerLen = (rect.shortestSide * 0.08).clamp(10.0, 28.0).toDouble();
     final corner = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.4
+      ..strokeWidth = 2.2
       ..strokeCap = StrokeCap.square
       ..color = _kTerminalAccent;
 
@@ -1176,37 +1219,19 @@ class _StageFramePainter extends CustomPainter {
     canvas.drawLine(rect.topLeft, rect.topLeft + Offset(0, cornerLen), corner);
     // 右上
     canvas.drawLine(
-      rect.topRight,
-      rect.topRight + Offset(-cornerLen, 0),
-      corner,
-    );
+        rect.topRight, rect.topRight + Offset(-cornerLen, 0), corner);
     canvas.drawLine(
-      rect.topRight,
-      rect.topRight + Offset(0, cornerLen),
-      corner,
-    );
+        rect.topRight, rect.topRight + Offset(0, cornerLen), corner);
     // 左下
     canvas.drawLine(
-      rect.bottomLeft,
-      rect.bottomLeft + Offset(cornerLen, 0),
-      corner,
-    );
+        rect.bottomLeft, rect.bottomLeft + Offset(cornerLen, 0), corner);
     canvas.drawLine(
-      rect.bottomLeft,
-      rect.bottomLeft + Offset(0, -cornerLen),
-      corner,
-    );
+        rect.bottomLeft, rect.bottomLeft + Offset(0, -cornerLen), corner);
     // 右下
     canvas.drawLine(
-      rect.bottomRight,
-      rect.bottomRight + Offset(-cornerLen, 0),
-      corner,
-    );
+        rect.bottomRight, rect.bottomRight + Offset(-cornerLen, 0), corner);
     canvas.drawLine(
-      rect.bottomRight,
-      rect.bottomRight + Offset(0, -cornerLen),
-      corner,
-    );
+        rect.bottomRight, rect.bottomRight + Offset(0, -cornerLen), corner);
   }
 
   @override

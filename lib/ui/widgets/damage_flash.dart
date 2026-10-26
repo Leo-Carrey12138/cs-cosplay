@@ -81,12 +81,12 @@ class _DamageFlashLayerState extends State<DamageFlashLayer>
                 Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 26, vertical: 14),
+                        horizontal: 24, vertical: 12),
                     decoration: BoxDecoration(
-                      color: const Color(0xCC7F0000),
-                      borderRadius: BorderRadius.circular(14),
+                      color: const Color(0xE65C1719),
+                      borderRadius: BorderRadius.circular(2),
                       border: Border.all(
-                          color: const Color(0xFFFF5252), width: 2),
+                          color: const Color(0xFFFF5252), width: 1.5),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -94,21 +94,25 @@ class _DamageFlashLayerState extends State<DamageFlashLayer>
                         const Text(
                           '你被击中了！',
                           style: TextStyle(
-                            fontSize: 30,
+                            fontSize: 28,
                             fontWeight: FontWeight.w900,
                             color: Colors.white,
-                            letterSpacing: 2,
+                            letterSpacing: 4,
+                            height: 1.1,
                           ),
                         ),
-                        if (_lastDamage > 0)
+                        if (_lastDamage > 0) ...<Widget>[
+                          const SizedBox(height: 3),
                           Text(
                             '-$_lastDamage HP',
                             style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFFFFCDD2),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.5,
+                              color: Color(0xFFF2B8B5),
                             ),
                           ),
+                        ],
                       ],
                     ),
                   ),
