@@ -26,11 +26,11 @@
 
 ## APK 交付
 
-交付文件 `p0-2-camera-zoom-release.apk`，应用代码来自合并提交 `bad0e9d`（后续提交仅补本文档）。SHA-256：
+已生成验收 APK（94.3 MB），计划交付名为 `p0-2-camera-zoom-release.apk`。应用代码来自合并提交 `bad0e9d`（后续提交仅补本文档）。SHA-256：
 
 `84d9c5b6f5333c37ecbbaee8f5a2ad70f6d688a46d57c8d2a2254b058fe03627`
 
-可将 APK 下载后传到 Android 手机安装，无需使用 VS Code 或在手机配置 Flutter。安装完成后进入同一房间，按下列步骤测试；APK 构建/签名通过不代表这些真机项目已经通过。
+当前聊天输出目录不可写；向 GitHub 草稿 Release 上传二进制被自动审批拦截，正等待用户明确授权，尚未提供下载附件。取得下载后可传到 Android 手机安装，无需使用 VS Code 或在手机配置 Flutter。安装完成后进入同一房间，按下列步骤测试；APK 构建/签名通过不代表这些真机项目已经通过。
 
 ## Android 真机步骤（尚未执行）
 
