@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app_config.dart';
+import '../theme/csgo_theme.dart';
 
 /// 阵亡页：锁定相机、隐藏开火按钮后全屏显示，5 秒倒计时后自动复活。
 class DeathOverlay extends StatelessWidget {
@@ -27,86 +28,114 @@ class DeathOverlay extends StatelessWidget {
     final seconds = (remaining / 1000).ceil();
 
     return Container(
-      color: const Color(0xF0000000),
+      color: const Color(0xF2171A16),
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                const Icon(Icons.dangerous, size: 78, color: Color(0xFFFF5252)),
-                const SizedBox(height: 10),
-                const Text(
-                  '你已阵亡',
-                  style: TextStyle(
-                    fontSize: 44,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFFFF5252),
-                    letterSpacing: 6,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  const Align(
+                    alignment: Alignment.center,
+                    child: CsgoTag(label: 'K.I.A.', color: CsColors.danger),
                   ),
-                ),
-                const SizedBox(height: 22),
-                Text(
-                  seconds > 0 ? '$seconds 秒后重新部署' : '正在重新部署…',
-                  style: const TextStyle(
-                    fontSize: 25,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
+                  const SizedBox(height: 12),
+                  const Text(
+                    '你已阵亡',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 38,
+                      fontWeight: FontWeight.w900,
+                      color: CsColors.danger,
+                      letterSpacing: 8,
+                      height: 1.1,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 300),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
+                  const SizedBox(height: 18),
+                  Text(
+                    seconds > 0 ? '$seconds 秒后重新部署' : '正在重新部署…',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.2,
+                      color: CsColors.textStrong,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 300),
                     child: LinearProgressIndicator(
                       value: progress,
                       minHeight: 8,
-                      backgroundColor: Colors.white12,
+                      backgroundColor: CsColors.border,
                       valueColor: const AlwaysStoppedAnimation<Color>(
-                        Color(0xFFFF5252),
+                        CsColors.danger,
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 12),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Text(
-                    '复活后满血，并获得 '
-                    '${Cfg.respawnInvincible.inSeconds} 秒保护',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 13, color: Colors.white70, height: 1.6),
-                  ),
-                ),
-                const SizedBox(height: 30),
-                SizedBox(
-                  height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: onLeave,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white38),
-                      minimumSize: const Size(140, 48),
+                  const SizedBox(height: 18),
+                  CsgoPanel(
+                    color: CsColors.panelDeep,
+                    padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+                    child: Column(
+                      children: <Widget>[
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            Icon(
+                              Icons.shield_outlined,
+                              size: 16,
+                              color: Color(0xFF40C4FF),
+                            ),
+                            SizedBox(width: 7),
+                            Text(
+                              'AUTO REDEPLOY // 自动复活',
+                              style: TextStyle(
+                                color: Color(0xFF40C4FF),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '复活后满血，并获得 '
+                          '${Cfg.respawnInvincible.inSeconds} 秒保护',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            height: 1.6,
+                            color: CsColors.text,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          '每次命中扣 ${Cfg.damagePerHit} HP · 满 ${Cfg.maxHp} HP',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            letterSpacing: 0.4,
+                            color: CsColors.textMuted,
+                          ),
+                        ),
+                      ],
                     ),
-                    icon: const Icon(Icons.logout, size: 18),
+                  ),
+                  const SizedBox(height: 20),
+                  OutlinedButton.icon(
+                    onPressed: onLeave,
+                    icon: const Icon(Icons.logout, size: 17),
                     label: const Text('离开房间'),
                   ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  '（每次命中扣 ${Cfg.damagePerHit} HP，满 ${Cfg.maxHp}）',
-                  style: TextStyle(fontSize: 11, color: Colors.white30),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

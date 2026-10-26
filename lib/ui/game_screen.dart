@@ -11,7 +11,9 @@ import '../services/combat_rules.dart';
 import '../services/feedback_service.dart';
 import '../services/vision_service.dart';
 import '../state/game_session.dart';
+import '../util/camera_work_queue.dart';
 import '../util/frame_mapper.dart';
+import 'theme/csgo_theme.dart';
 import 'widgets/crosshair.dart';
 import 'widgets/damage_flash.dart';
 import 'widgets/death_overlay.dart';
@@ -20,10 +22,11 @@ import 'widgets/fire_button.dart';
 import 'widgets/kill_feed.dart';
 import 'widgets/player_hp_list.dart';
 import 'widgets/target_picker.dart';
+import 'widgets/zoom_controls.dart';
 
-/// 战术终端风配色：深色底 + 荧光绿细线。
-const Color _kTerminalBg = Color(0xFF0B0F12);
-const Color _kTerminalAccent = Color(0xFF00E676);
+/// 战术终端风配色：深橄榄灰底 + 沙黄细线。
+const Color _kTerminalBg = CsColors.bg;
+const Color _kTerminalAccent = CsColors.accent;
 
 /// 主战场：相机预览（contain，完整不裁切）+ 准星 + 绿框 + 开火按钮。
 class GameScreen extends StatefulWidget {
@@ -40,6 +43,35 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   final FeedbackService _feedback = FeedbackService();
 
   CameraController? _camera;
+  int _cameraGeneration = 0;
+  int _detectionGeneration = 0;
+  bool _foreground = true;
+  final CameraWorkQueue _cameraQueue = CameraWorkQueue();
+  Completer<void>? _analysisDone;
+  int _streamGeneration = 0;
+  double _zoom = 1.0;
+  double _maxZoom = 1.0;
+  bool _zoomReady = false;
+  bool _zoomBusy = false;
+  DateTime? _acceptFramesAfter;
+
+  // 序列化初始化、变焦和释放，避免原生相机调用与 dispose 交叉。
+  Future<void> _queueCamera(Future<void> Function() action) {
+    return _cameraQueue.run(action).catchError((Object e) {
+      debugPrint('相机操作失败: $e');
+    });
+  }
+
+  bool _isCurrent(int generation) =>
+      mounted && _foreground && generation == _cameraGeneration;
+
+  void _invalidateDetection() {
+    _detectionGeneration++;
+    _lastDetection = null;
+    _lastAnalyzeAt = null;
+    _hitMarker = null;
+  }
+
   int _sensorOrientation = 90;
   String? _cameraError;
 
@@ -75,7 +107,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   // ---- 命中提示 ----
   String? _hitMarker;
-  Color _hitMarkerColor = Colors.white;
+  Color _hitMarkerColor = CsColors.text;
   Timer? _hitMarkerTimer;
 
   // ---- 阵亡锁定 ----
@@ -93,6 +125,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _session = context.read<GameSession>();
     _session.addListener(_onSessionChanged);
+    _cameraLockedForDeath = _session.iAmDead;
 
     // 受击：震动 + 音效（红光闪烁由 DamageFlashLayer 自己订阅同一个流）
     _damageSub = _session.onDamaged.listen((_) {
@@ -106,21 +139,54 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Future<void> _bootstrap() async {
     await _feedback.init();
+    if (!mounted) return;
     try {
       await _vision.init();
     } catch (e) {
       debugPrint('Pose 检测器初始化失败: $e');
     }
-    await _initCamera();
+    if (mounted && _foreground) await _initCamera();
   }
 
   // ------------------------------------------------------------------
   // 相机
   // ------------------------------------------------------------------
 
-  Future<void> _initCamera() async {
+  Future<void> _initCamera() {
+    final generation = ++_cameraGeneration;
+    return _queueCamera(() => _openCamera(generation));
+  }
+
+  Future<void> _disposeController(CameraController? controller) async {
+    if (controller == null) return;
+    controller.removeListener(_onCameraValueChanged);
+    try {
+      if (controller.value.isStreamingImages)
+        await controller.stopImageStream();
+    } catch (_) {}
+    try {
+      await controller.dispose();
+    } catch (e) {
+      debugPrint('释放相机失败: $e');
+    }
+  }
+
+  Future<void> _openCamera(int generation) async {
+    if (!_isCurrent(generation)) return;
+    final previous = _camera;
+    setState(() {
+      _camera = null;
+      _zoomReady = false;
+      _zoomBusy = false;
+      _zoom = 1.0;
+      _maxZoom = 1.0;
+      _invalidateDetection();
+    });
+    await _disposeController(previous);
+    CameraController? pending;
     try {
       final cameras = await availableCameras();
+      if (!_isCurrent(generation)) return;
       if (cameras.isEmpty) {
         if (mounted) setState(() => _cameraError = '没有找到可用的摄像头');
         return;
@@ -140,43 +206,152 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         // 的 NV21 交给 Dart，正好能零拷贝喂给 ML Kit。
         imageFormatGroup: ImageFormatGroup.nv21,
       );
+      pending = controller;
       await controller.initialize();
+      if (!_isCurrent(generation)) return;
+      var maxZoom = 1.0;
+      var zoomReady = false;
+      try {
+        final minimum = await controller.getMinZoomLevel();
+        final maximum = await controller.getMaxZoomLevel();
+        if (minimum.isFinite &&
+            maximum.isFinite &&
+            minimum <= 1.0 &&
+            maximum >= 1.0) {
+          await controller.setZoomLevel(1.0);
+          maxZoom = maximum;
+          zoomReady = true;
+        }
+      } catch (e) {
+        debugPrint('变焦初始化失败（保留相机预览）: $e');
+      }
 
       // 一次性诊断：确认 CameraX 实际给了多少分辨率（ResolutionPreset 只是"目标"，
       // CameraX 会按设备能力回落到最接近的较低档，所以必须以运行时日志为准）。
-      debugPrint('[相机] 预览 previewSize=${controller.value.previewSize} '
-          'aspectRatio=${controller.value.aspectRatio.toStringAsFixed(3)} '
-          'sensorOrientation=$_sensorOrientation '
-          'preset=$_resolutionPreset');
+      debugPrint(
+        '[相机] 预览 previewSize=${controller.value.previewSize} '
+        'aspectRatio=${controller.value.aspectRatio.toStringAsFixed(3)} '
+        'sensorOrientation=$_sensorOrientation '
+        'preset=$_resolutionPreset',
+      );
 
-      if (!mounted) {
-        await controller.dispose();
-        return;
+      if (!_isCurrent(generation)) return;
+      _loggedFirstFrame = false;
+      // 初始化完成前不发布 controller，失效初始化由 finally 独占释放。
+      // 后台事件因此不会重复 dispose 这个仍在初始化的实例。
+      if (_session.iAmDead) {
+        await controller.pausePreview();
+      } else {
+        await _startImageStream(controller, generation);
       }
+      if (!_isCurrent(generation)) return;
+      controller.addListener(_onCameraValueChanged);
       setState(() {
         _camera = controller;
         _cameraError = null;
+        _zoom = 1.0;
+        _maxZoom = maxZoom;
+        _zoomReady = zoomReady;
       });
-      _loggedFirstFrame = false; // 每次重开相机都重新打一次分辨率
-      await controller.startImageStream(_onCameraFrame);
+      pending = null;
     } on CameraException catch (e) {
-      if (mounted) {
-        setState(() =>
-            _cameraError = '相机不可用（${e.code}）：${e.description ?? ''}\n请检查相机权限');
+      if (_isCurrent(generation)) {
+        setState(
+          () =>
+              _cameraError = '相机不可用（${e.code}）：${e.description ?? ''}\n请检查相机权限',
+        );
       }
     } catch (e) {
-      if (mounted) setState(() => _cameraError = '相机初始化失败：$e');
+      if (_isCurrent(generation)) {
+        setState(() => _cameraError = '相机初始化失败：$e');
+      }
+    } finally {
+      if (pending != null) {
+        if (identical(_camera, pending)) {
+          _camera = null;
+          _zoomReady = false;
+          if (mounted) setState(() {});
+        }
+        await _disposeController(pending);
+      }
     }
   }
 
-  Future<void> _stopCameraStream() async {
-    final controller = _camera;
-    if (controller == null) return;
-    try {
-      if (controller.value.isStreamingImages) {
-        await controller.stopImageStream();
+  void _onCameraValueChanged() {
+    if (!mounted || _camera == null) return;
+    setState(() {
+      if (_camera!.value.hasError) {
+        _cameraError = '相机不可用：${_camera!.value.errorDescription ?? ''}';
+        _zoomReady = false;
+        _invalidateDetection();
       }
-    } catch (_) {}
+    });
+  }
+
+  bool get _cameraUsable {
+    final value = _camera?.value;
+    return mounted &&
+        _foreground &&
+        _cameraError == null &&
+        value != null &&
+        value.isInitialized &&
+        !value.hasError &&
+        !value.isPreviewPaused &&
+        value.isStreamingImages;
+  }
+
+  bool get _canZoom =>
+      _cameraUsable && _zoomReady && !_zoomBusy && !_session.iAmDead;
+
+  Future<void> _startImageStream(CameraController controller, int generation) {
+    final streamGeneration = ++_streamGeneration;
+    return controller.startImageStream((image) {
+      if (_isCurrent(generation) && streamGeneration == _streamGeneration) {
+        unawaited(_onCameraFrame(image));
+      }
+    });
+  }
+
+  Future<void> _changeZoom(double delta) async {
+    if (!_canZoom) return;
+    final controller = _camera!;
+    final generation = _cameraGeneration;
+    final target = (_zoom + delta).clamp(1.0, _maxZoom).toDouble();
+    if (target == _zoom) return;
+    setState(() {
+      _zoomBusy = true;
+      _invalidateDetection();
+    });
+    await _queueCamera(() async {
+      try {
+        if (!_isCurrent(generation) ||
+            _session.iAmDead ||
+            !identical(_camera, controller))
+          return;
+        // 断开旧图像流，旧回调和旧推理不能跨倍率继续参与命中。
+        await controller.stopImageStream();
+        ++_streamGeneration;
+        if (!_isCurrent(generation) || _session.iAmDead) return;
+        await controller.setZoomLevel(target);
+        if (!_isCurrent(generation)) return;
+        setState(() => _zoom = target);
+      } catch (e) {
+        if (_isCurrent(generation)) _showToast('变焦失败，请重试');
+        debugPrint('变焦失败: $e');
+      } finally {
+        if (_isCurrent(generation)) {
+          await _syncCameraLock();
+        }
+        if (_isCurrent(generation)) {
+          setState(() {
+            _zoomBusy = false;
+            // 丢弃切换前的推理以及管线内可能残留的旧帧。
+            _invalidateDetection();
+            _acceptFramesAfter = DateTime.now().add(Cfg.detectInterval);
+          });
+        }
+      }
+    });
   }
 
   /// 每帧回调。抽帧：300ms 一帧 + 忙等跳过，保证不卡 UI。
@@ -186,27 +361,42 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (!_loggedFirstFrame) {
       _loggedFirstFrame = true;
       final expected = image.width * image.height * 3 ~/ 2;
-      debugPrint('[图像流] 首帧 ${image.width}x${image.height} '
-          'format=${image.format.group} planes=${image.planes.length} '
-          'plane0Bytes=${image.planes.isEmpty ? 0 : image.planes.first.bytes.length} '
-          'expectNv21Bytes=$expected');
+      debugPrint(
+        '[图像流] 首帧 ${image.width}x${image.height} '
+        'format=${image.format.group} planes=${image.planes.length} '
+        'plane0Bytes=${image.planes.isEmpty ? 0 : image.planes.first.bytes.length} '
+        'expectNv21Bytes=$expected',
+      );
     }
 
+    if (!_cameraUsable || _zoomBusy || _session.iAmDead) return;
+    if (_acceptFramesAfter != null &&
+        DateTime.now().isBefore(_acceptFramesAfter!))
+      return;
     if (_analyzing) return;
+    final generation = _detectionGeneration;
     final now = DateTime.now();
     final last = _lastAnalyzeAt;
     if (last != null && now.difference(last) < Cfg.detectInterval) return;
 
     _analyzing = true;
+    final done = Completer<void>();
+    _analysisDone = done;
     _lastAnalyzeAt = now;
     try {
       final frame = await _vision.analyze(image, _sensorOrientation);
-      if (!mounted || frame == null) return;
+      if (!mounted ||
+          frame == null ||
+          generation != _detectionGeneration ||
+          !_foreground ||
+          _session.iAmDead)
+        return;
       setState(() => _lastDetection = frame);
     } catch (e) {
       debugPrint('本地推理失败: $e');
     } finally {
       _analyzing = false;
+      done.complete();
     }
   }
 
@@ -236,18 +426,24 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _camera;
-    if (controller == null || !controller.value.isInitialized) return;
-
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      unawaited(() async {
-        await _stopCameraStream();
-        await controller.dispose();
-        if (mounted) setState(() => _camera = null);
-      }());
-    } else if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed) {
+      _foreground = true;
       unawaited(_initCamera());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _foreground = false;
+      ++_cameraGeneration;
+      ++_streamGeneration;
+      final controller = _camera;
+      setState(() {
+        _camera = null;
+        _zoomReady = false;
+        _zoomBusy = false;
+        _invalidateDetection();
+      });
+      unawaited(_queueCamera(() => _disposeController(controller)));
     }
   }
 
@@ -256,31 +452,47 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   // ------------------------------------------------------------------
 
   void _onSessionChanged() {
-    if (_session.iAmDead && !_cameraLockedForDeath) {
-      _cameraLockedForDeath = true;
-      unawaited(_lockCamera());
-    } else if (!_session.iAmDead && _cameraLockedForDeath) {
-      _cameraLockedForDeath = false;
-      unawaited(_unlockCamera());
+    final dead = _session.iAmDead;
+    if (dead == _cameraLockedForDeath) return;
+    _cameraLockedForDeath = dead;
+    setState(_invalidateDetection);
+    // 队列执行时读取最新会话状态，旧的死亡任务不能覆盖复活/重开。
+    unawaited(_queueCamera(_syncCameraLock));
+  }
+
+  Future<void> _syncCameraLock() async {
+    final controller = _camera;
+    final generation = _cameraGeneration;
+    if (!_isCurrent(generation) ||
+        controller == null ||
+        !controller.value.isInitialized ||
+        controller.value.hasError)
+      return;
+    try {
+      if (_session.iAmDead) {
+        ++_streamGeneration;
+        if (controller.value.isStreamingImages)
+          await controller.stopImageStream();
+        if (!_isCurrent(generation)) return;
+        if (_session.iAmDead && !controller.value.isPreviewPaused) {
+          await controller.pausePreview();
+        }
+      } else {
+        if (controller.value.isPreviewPaused) await controller.resumePreview();
+        if (!_isCurrent(generation) || _session.iAmDead) return;
+        if (!controller.value.isStreamingImages) {
+          await _startImageStream(controller, generation);
+        }
+      }
+    } catch (e) {
+      if (_isCurrent(generation)) {
+        setState(() {
+          _cameraError = '相机恢复失败，请重试：$e';
+          _zoomReady = false;
+          _invalidateDetection();
+        });
+      }
     }
-  }
-
-  Future<void> _lockCamera() async {
-    final controller = _camera;
-    if (controller == null || !controller.value.isInitialized) return;
-    try {
-      await _stopCameraStream();
-      await controller.pausePreview();
-    } catch (_) {}
-  }
-
-  Future<void> _unlockCamera() async {
-    final controller = _camera;
-    if (controller == null || !controller.value.isInitialized) return;
-    try {
-      await controller.resumePreview();
-      await controller.startImageStream(_onCameraFrame);
-    } catch (_) {}
   }
 
   // ------------------------------------------------------------------
@@ -317,7 +529,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _fire() async {
-    if (_session.iAmDead) return;
+    if (_session.iAmDead || !_cameraUsable || _zoomBusy) return;
     if (_cooling) return;
 
     _startCooldown();
@@ -325,7 +537,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     final detection = _lastDetection;
     if (detection == null) {
-      _showHitMarker('还没识别到画面', Colors.amber);
+      _showHitMarker('还没识别到画面', CsColors.warning);
       return;
     }
 
@@ -349,7 +561,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     if (bestBox == null) {
-      _showHitMarker('脱靶', Colors.white);
+      _showHitMarker('脱靶', CsColors.text);
       return;
     }
 
@@ -357,7 +569,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (bestRatio < Cfg.minTargetAreaRatio) {
       _showHitMarker(
         '超出射程（${(bestRatio * 100).toStringAsFixed(1)}%）',
-        Colors.orange,
+        CsColors.warning,
       );
       return;
     }
@@ -365,7 +577,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     // ---- hit_success ----
     _showHitMarker(
       '命中！目标占屏 ${(bestRatio * 100).toStringAsFixed(1)}%',
-      const Color(0xFF00E676),
+      CsColors.accent,
     );
     unawaited(_feedback.playHitMarker());
 
@@ -378,6 +590,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     if (!mounted) return;
 
+    final detectionGeneration = _detectionGeneration;
     final target = await showTargetPicker(
       context,
       candidates: candidates,
@@ -385,6 +598,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       serverNowMs: _session.serverNowMs,
     );
     if (target == null || !mounted) return;
+    if (_session.iAmDead ||
+        !_cameraUsable ||
+        _zoomBusy ||
+        detectionGeneration != _detectionGeneration) {
+      _showToast('画面已变化，请重新瞄准');
+      return;
+    }
 
     final decision = await _session.confirmHit(target.id);
     if (!mounted) return;
@@ -446,7 +666,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           content: Text(message),
           duration: const Duration(milliseconds: 1600),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xE6151B21),
+          backgroundColor: CsColors.panelRaised,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(2)),
+            side: BorderSide(color: CsColors.borderStrong),
+          ),
         ),
       );
   }
@@ -456,9 +680,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('重置游戏？'),
-        content: const Text(
-          '保留当前队伍，所有玩家满血复活，击杀数清零，立即开始新一局。',
-        ),
+        content: const Text('保留当前队伍，所有玩家满血复活，击杀数清零，立即开始新一局。'),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -473,7 +695,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
     if (ok == true) {
       final resetOk = await _session.resetGame();
-      if (mounted && resetOk) _showToast('已重置，新一局开始');
+      if (mounted && resetOk) {
+        setState(_invalidateDetection);
+        _onSessionChanged();
+        _showToast('已重置，新一局开始');
+      }
     }
   }
 
@@ -534,13 +760,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   // 三段式布局
   // ------------------------------------------------------------------
 
-  /// 上黑边面板：房间信息 + 全员血条 + 战报。
+  /// 上终端面板：房间信息 + 全员血条 + 战报。
   Widget _buildTopTerminal(GameSession session) {
     return Container(
       decoration: const BoxDecoration(
-        color: _kTerminalBg,
+        color: CsColors.panel,
         border: Border(
-          bottom: BorderSide(color: _kTerminalAccent, width: 1.5),
+          bottom: BorderSide(color: CsColors.borderStrong),
         ),
       ),
       child: SafeArea(
@@ -579,7 +805,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// 相机区：预览用 contain 完整显示，四周黑边即 #0B0F12。
+  /// 相机区：预览用 contain 完整显示，四周留白即 #171A16。
   ///
   /// 这里用 LayoutBuilder 取到的是**预览区**尺寸并写进 _viewSize，
   /// 绿框叠加和开火判定的 FrameMapper 都用它 —— 不能再用整屏尺寸，
@@ -612,30 +838,46 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// 下黑边面板：我的血量 + 开火按钮。
+  /// 下终端面板：我的血量 + 变焦控件 + 开火按钮。
   Widget _buildBottomTerminal(GameSession session) {
     return Container(
       decoration: const BoxDecoration(
-        color: _kTerminalBg,
+        color: CsColors.panel,
         border: Border(
-          top: BorderSide(color: _kTerminalAccent, width: 1.5),
+          top: BorderSide(color: CsColors.borderStrong),
         ),
       ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 18, 22),
+          padding: const EdgeInsets.fromLTRB(14, 10, 16, 18),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-              Expanded(child: _buildMyStatus(session)),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildMyStatus(session),
+                    const SizedBox(height: 4),
+                    ZoomControls(
+                      zoom: _zoom,
+                      maxZoom: _maxZoom,
+                      enabled: _canZoom,
+                      onDecrease: () => unawaited(_changeZoom(-0.5)),
+                      onIncrease: () => unawaited(_changeZoom(0.5)),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(width: 10),
               if (!session.iAmDead)
                 FireButton(
                   onPressed: _fire,
                   cooling: _cooling,
                   cooldownProgress: _cooldownProgress,
-                  enabled: _camera != null,
+                  enabled: _cameraUsable && !_zoomBusy,
                 ),
             ],
           ),
@@ -691,20 +933,27 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       alignment: const Alignment(0, -0.42),
       child: IgnorePointer(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
-            color: const Color(0xB3000000),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: _hitMarkerColor, width: 1.5),
+            color: const Color(0xE61B1E19),
+            borderRadius: BorderRadius.circular(1),
+            border: Border.all(color: _hitMarkerColor),
           ),
-          child: Text(
-            text,
-            style: TextStyle(
-              color: _hitMarkerColor,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(width: 3, height: 14, color: _hitMarkerColor),
+              const SizedBox(width: 8),
+              Text(
+                text,
+                style: TextStyle(
+                  color: _hitMarkerColor,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -742,7 +991,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// 画面四周的荧光绿细线描边（战术终端感）。
+  /// 画面四周的沙黄细线描边（战术终端感）。
   /// 复用 FrameMapper 的 contain 几何，所以描边永远贴着画面真实边缘。
   Widget _buildStageFrame(Size frame) {
     return IgnorePointer(
@@ -756,6 +1005,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// 左下角：我的名字 / 血量 / AI 状态
   Widget _buildMyStatus(GameSession session) {
     final ratio = (session.myHp / Cfg.maxHp).clamp(0.0, 1.0).toDouble();
+    final hpColor = csgoHpColor(ratio, alive: !session.iAmDead);
     final detection = _lastDetection;
     // 姿态检测方案下的三种状态（不再有「全局 person 置信度」这种模糊说法）：
     //   · 还没出结果          → 识别中
@@ -770,17 +1020,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     } else if (!detection.hasTarget) {
       aiText = 'AI：视野内无目标';
     } else {
-      aiText = 'AI：已锁定目标 '
+      aiText =
+          'AI：已锁定目标 '
           '${(detection.targetConfidence * 100).toStringAsFixed(0)}%';
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xB3000000),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white24),
-      ),
+    return CsgoPanel(
+      accentBar: true,
+      color: const Color(0xF21B1E19),
+      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -792,43 +1040,55 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                    color: CsColors.textStrong,
+                  ),
                 ),
               ),
               Text(
                 '${session.myHp} HP',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 16,
                   fontWeight: FontWeight.w900,
-                  color: ratio > 0.6
-                      ? const Color(0xFF00E676)
-                      : ratio > 0.3
-                          ? const Color(0xFFFFC107)
-                          : const Color(0xFFFF5252),
+                  letterSpacing: 0.5,
+                  color: hpColor,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: ratio,
-              minHeight: 8,
-              backgroundColor: Colors.white12,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                ratio > 0.6
-                    ? const Color(0xFF00E676)
-                    : ratio > 0.3
-                        ? const Color(0xFFFFC107)
-                        : const Color(0xFFFF5252),
-              ),
-            ),
+          LinearProgressIndicator(
+            value: ratio,
+            minHeight: 7,
+            backgroundColor: CsColors.border,
+            valueColor: AlwaysStoppedAnimation<Color>(hpColor),
           ),
           const SizedBox(height: 6),
-          Text(
-            aiText,
-            style: const TextStyle(fontSize: 11, color: Colors.white60),
+          Row(
+            children: <Widget>[
+              Container(
+                width: 4,
+                height: 4,
+                color: detection?.hasTarget == true
+                    ? CsColors.accent
+                    : CsColors.textMuted,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  aiText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    letterSpacing: 0.3,
+                    color: CsColors.textMuted,
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -837,31 +1097,53 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Widget _buildCameraError() {
     return ColoredBox(
-      color: const Color(0xCC000000),
+      color: const Color(0xF2171A16),
       child: Center(
         child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(Icons.no_photography_outlined,
-                  size: 56, color: Colors.orange),
-              const SizedBox(height: 14),
-              Text(
-                _cameraError!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 15, height: 1.6),
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: CsgoPanel(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: CsgoTag(
+                      label: 'CAMERA OFFLINE',
+                      color: CsColors.danger,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Icon(
+                    Icons.no_photography_outlined,
+                    size: 46,
+                    color: CsColors.danger,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _cameraError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      height: 1.6,
+                      color: CsColors.text,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: () {
+                      setState(() => _cameraError = null);
+                      unawaited(_initCamera());
+                    },
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('重试'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                onPressed: () {
-                  setState(() => _cameraError = null);
-                  unawaited(_initCamera());
-                },
-                icon: const Icon(Icons.refresh),
-                label: const Text('重试'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -877,19 +1159,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _cooldownTicker?.cancel();
     _hitMarkerTimer?.cancel();
 
+    _foreground = false;
+    ++_cameraGeneration;
+    ++_streamGeneration;
+    _invalidateDetection();
     final controller = _camera;
     _camera = null;
-    if (controller != null) {
-      unawaited(() async {
-        try {
-          if (controller.value.isStreamingImages) {
-            await controller.stopImageStream();
-          }
-        } catch (_) {}
-        await controller.dispose();
-      }());
-    }
-    unawaited(_vision.dispose());
+    unawaited(_queueCamera(() => _disposeController(controller)));
+    // 不在 ML Kit 仍处理图像时 close detector。
+    final analysisDone = _analysisDone?.future;
+    unawaited(() async {
+      if (analysisDone != null) await analysisDone;
+      await _vision.dispose();
+    }());
     unawaited(_feedback.dispose());
     // 离开房间：立即从数据库移除自己（掉线则由 onDisconnect 兜底）
     unawaited(_session.leave());
@@ -898,7 +1180,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 }
 
-/// 画面四周的荧光绿细线描边 + 四角短线，做出"战术终端取景框"的味道。
+/// 画面四周的沙黄细线描边 + 四角短线，做出"战术终端取景框"的味道。
 ///
 /// 边框位置由 FrameMapper（contain 几何）算出来，和 FittedBox(contain)
 /// 摆放画面的规则完全一致，所以描边永远正好压在画面边缘上。
@@ -920,15 +1202,15 @@ class _StageFramePainter extends CustomPainter {
       rect,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..color = _kTerminalAccent.withValues(alpha: 0.75),
+        ..strokeWidth = 1
+        ..color = _kTerminalAccent.withValues(alpha: 0.55),
     );
 
     // 四角加粗短线，强调取景框
     final cornerLen = (rect.shortestSide * 0.08).clamp(10.0, 28.0).toDouble();
     final corner = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.4
+      ..strokeWidth = 2.2
       ..strokeCap = StrokeCap.square
       ..color = _kTerminalAccent;
 

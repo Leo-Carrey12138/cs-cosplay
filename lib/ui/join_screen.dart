@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../app_config.dart';
 import '../state/game_session.dart';
 import 'lobby_screen.dart';
+import 'theme/csgo_theme.dart';
 
 /// 进入页：昵称 + 4 位房间号 → 加入（房间不存在会自动创建）
 class JoinScreen extends StatefulWidget {
@@ -23,16 +24,22 @@ class _JoinScreenState extends State<JoinScreen> {
   final TextEditingController _roomCtrl = TextEditingController(
     text: (math.Random().nextInt(9000) + 1000).toString(),
   );
+  final FocusNode _roomFocus = FocusNode();
   bool _submitting = false;
+
+  /// 随机房号后的即时反馈（用户一改房号就清掉，避免显示过期信息）
+  String? _roomNotice;
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _roomCtrl.dispose();
+    _roomFocus.dispose();
     super.dispose();
   }
 
   Future<void> _join() async {
+    if (_submitting) return;
     final name = _nameCtrl.text.trim();
     final room = _roomCtrl.text.trim();
 
@@ -63,15 +70,30 @@ class _JoinScreenState extends State<JoinScreen> {
     }
   }
 
+  void _randomizeRoom() {
+    final room = (math.Random().nextInt(9000) + 1000).toString();
+    HapticFeedback.selectionClick();
+    setState(() {
+      _roomCtrl.text = room;
+      _roomNotice = '已生成新房号 · $room';
+    });
+  }
+
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red.shade900,
-          behavior: SnackBarBehavior.floating,
+          backgroundColor: CsColors.dangerDeep,
+          content: Row(
+            children: <Widget>[
+              const Icon(Icons.warning_amber_rounded,
+                  size: 18, color: CsColors.danger),
+              const SizedBox(width: 8),
+              Expanded(child: Text(message)),
+            ],
+          ),
         ),
       );
   }
@@ -79,123 +101,394 @@ class _JoinScreenState extends State<JoinScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                const Icon(Icons.center_focus_strong,
-                    size: 72, color: Color(0xFF00E676)),
-                const SizedBox(height: 12),
-                const Text(
-                  '真人 CS · 局域网无外设对战',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                  ),
+      body: CsgoBackdrop(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final bool short = constraints.maxHeight < 700;
+              return SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.fromLTRB(
+                  short ? 18 : 24,
+                  short ? 16 : 28,
+                  short ? 18 : 24,
+                  24,
                 ),
-                const SizedBox(height: 6),
-                const Text(
-                  '摄像头 + 本地 AI 识别 + 实时房间 · 单房最多 ${Cfg.maxPlayers} 人',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white54, fontSize: 13),
-                ),
-                const SizedBox(height: 36),
-                TextField(
-                  controller: _nameCtrl,
-                  maxLength: 10,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '昵称',
-                    counterText: '',
-                    prefixIcon: Icon(Icons.person_outline),
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _roomCtrl,
-                  keyboardType: TextInputType.number,
-                  maxLength: 4,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _join(),
-                  inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.digitsOnly,
-                  ],
-                  style: const TextStyle(fontSize: 24, letterSpacing: 8),
-                  decoration: InputDecoration(
-                    labelText: '房间号（4 位数字）',
-                    counterText: '',
-                    prefixIcon: const Icon(Icons.meeting_room_outlined),
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      tooltip: '随机房号',
-                      icon: const Icon(Icons.casino_outlined),
-                      onPressed: () => setState(() {
-                        _roomCtrl.text =
-                            (math.Random().nextInt(9000) + 1000).toString();
-                      }),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        _buildTopBar(),
+                        SizedBox(height: short ? 20 : 30),
+                        _buildTitle(),
+                        SizedBox(height: short ? 18 : 24),
+                        const CsgoDivider(label: 'JOIN A MATCH'),
+                        SizedBox(height: short ? 14 : 18),
+                        _buildIdentityPanel(),
+                        const SizedBox(height: 14),
+                        _buildRoomPanel(),
+                        const SizedBox(height: 18),
+                        _buildDeployButton(),
+                        const SizedBox(height: 10),
+                        const Text(
+                          '进入后把摄像头对准对手，准星落在人形框内再开火。',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: CsColors.textMuted,
+                            fontSize: 10.5,
+                            height: 1.5,
+                          ),
+                        ),
+                        SizedBox(height: short ? 18 : 24),
+                        _buildRulesPanel(),
+                        const SizedBox(height: 18),
+                        const CsgoDivider(label: 'SYSTEM'),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'ML KIT · FIREBASE REALTIME DB · CAMERA',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: CsColors.textMuted,
+                            fontSize: 8.5,
+                            letterSpacing: 1.6,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 28),
-                SizedBox(
-                  height: 56,
-                  child: FilledButton.icon(
-                    onPressed: _submitting ? null : _join,
-                    icon: _submitting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.login),
-                    label: Text(
-                      _submitting ? '正在进入房间…' : '加入战斗',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                const _RulesCard(),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
     );
   }
+
+  Widget _buildTopBar() {
+    return Row(
+      children: <Widget>[
+        Container(width: 9, height: 9, color: CsColors.accent),
+        const SizedBox(width: 8),
+        const Expanded(
+          child: Text(
+            'CS // TACTICAL OPS',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: CsColors.accent,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 2.2,
+            ),
+          ),
+        ),
+        const CsgoTag(label: '单房 ${Cfg.maxPlayers} 人'),
+      ],
+    );
+  }
+
+  Widget _buildTitle() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Text(
+          '真人 CS',
+          style: TextStyle(
+            fontSize: 40,
+            height: 1.0,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 3,
+            color: CsColors.textStrong,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            Container(width: 30, height: 2, color: CsColors.accent),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'TACTICAL COSPLAY ARENA',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: CsColors.accentDim,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          '摄像头 + 本地 AI 识别 + 实时房间\n局域网无外设对战',
+          style: TextStyle(
+            color: CsColors.textMuted,
+            fontSize: 12.5,
+            height: 1.55,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIdentityPanel() {
+    return CsgoPanel(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const CsgoSectionHeader(
+            index: '01',
+            title: '作战代号',
+            trailing: CsgoTag(label: 'CALLSIGN'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            key: const Key('nickname_field'),
+            controller: _nameCtrl,
+            enabled: !_submitting,
+            maxLength: 10,
+            textInputAction: TextInputAction.next,
+            onSubmitted: (_) => _roomFocus.requestFocus(),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+            ),
+            decoration: const InputDecoration(
+              hintText: '输入昵称',
+              counterText: '',
+              prefixIcon: Icon(Icons.badge_outlined, size: 20),
+            ),
+          ),
+          const SizedBox(height: 7),
+          const Text(
+            '默认会生成代号，战报和血条都用它显示。',
+            style: TextStyle(
+              color: CsColors.textMuted,
+              fontSize: 10.5,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoomPanel() {
+    final String notice = _roomNotice ?? '输入 4 位数字，相同房号即可同场对战';
+    return CsgoPanel(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const CsgoSectionHeader(
+            index: '02',
+            title: '加入房间',
+            trailing: CsgoTag(label: '4 DIGITS'),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            key: const Key('room_field'),
+            controller: _roomCtrl,
+            focusNode: _roomFocus,
+            enabled: !_submitting,
+            keyboardType: TextInputType.number,
+            maxLength: 4,
+            textAlign: TextAlign.center,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _join(),
+            onChanged: (_) {
+              if (_roomNotice != null) {
+                setState(() => _roomNotice = null);
+              }
+            },
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+            ],
+            style: const TextStyle(
+              fontSize: 26,
+              height: 1.1,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 10,
+              color: CsColors.accent,
+            ),
+            decoration: InputDecoration(
+              hintText: '0000',
+              counterText: '',
+              suffixIcon: IconButton(
+                key: const Key('random_room_button'),
+                tooltip: '随机房号',
+                onPressed: _submitting ? null : _randomizeRoom,
+                icon: const Icon(Icons.casino_outlined),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 18,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              child: Row(
+                key: ValueKey<String>(notice),
+                children: <Widget>[
+                  Icon(
+                    _roomNotice != null
+                        ? Icons.check_circle_outline
+                        : Icons.info_outline,
+                    size: 12,
+                    color: _roomNotice != null
+                        ? CsColors.accent
+                        : CsColors.textMuted,
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      notice,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: _roomNotice != null
+                            ? CsColors.accent
+                            : CsColors.textMuted,
+                        fontSize: 10.5,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeployButton() {
+    return SizedBox(
+      height: 58,
+      child: FilledButton(
+        key: const Key('join_button'),
+        onPressed: _submitting ? null : _join,
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(2)),
+          ),
+        ),
+        child: Row(
+          children: <Widget>[
+            if (_submitting)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: CsColors.textMuted,
+                ),
+              )
+            else
+              const Icon(Icons.play_arrow_rounded, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _submitting ? '正在进入房间…' : '加入战斗',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                ),
+              ),
+            ),
+            if (!_submitting)
+              const Text(
+                'DEPLOY',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.8,
+                  color: Color(0x991C1708),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRulesPanel() {
+    return CsgoPanel(
+      color: CsColors.panelDeep,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const CsgoSectionHeader(
+            index: '03',
+            title: '交战规则',
+            trailing: CsgoTag(label: 'BRIEFING', color: CsColors.textMuted),
+          ),
+          const SizedBox(height: 10),
+          const _RuleRow('01', '进入房间后先分队：ALPHA / BRAVO，每队最多 ${Cfg.teamCapacity} 人'),
+          const _RuleRow('02', '摄像头对准对手，准星落在人形框内再开火'),
+          const _RuleRow('03', '每次命中 -${Cfg.damagePerHit} HP，击倒敌人 +1 击杀'),
+          const _RuleRow('04', '阵亡 5 秒后自动复活，复活后 2 秒无敌'),
+          _RuleRow(
+            '05',
+            '目标占屏小于 ${(Cfg.minTargetAreaRatio * 100).toStringAsFixed(1)}% 判定为超出射程',
+          ),
+          const _RuleRow('06', '血量由服务端事务扣减，本地改不了分'),
+        ],
+      ),
+    );
+  }
 }
 
-class _RulesCard extends StatelessWidget {
-  const _RulesCard();
+class _RuleRow extends StatelessWidget {
+  const _RuleRow(this.index, this.text);
+
+  final String index;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
-    const style = TextStyle(color: Colors.white60, fontSize: 12.5, height: 1.7);
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: const Column(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('玩法：用摄像头对准对手，准星落在绿色人形框内 → 开火 → 选择你打到的人。', style: style),
-          Text('· 进入房间后先分队：ALPHA / BRAVO，每队最多 ${Cfg.teamCapacity} 人',
-              style: style),
-          Text('· 每次命中 -${Cfg.damagePerHit} HP，击倒敌人 +1 击杀', style: style),
-          Text('· 阵亡 5 秒后自动复活，复活后 2 秒无敌', style: style),
-          Text('· 目标太小（< 屏幕 3%）判定为超出射程', style: style),
-          Text('· 血量由服务端事务扣减，本地改不了分', style: style),
+          SizedBox(
+            width: 20,
+            child: Text(
+              index,
+              style: const TextStyle(
+                color: CsColors.accentDim,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.8,
+                height: 1.7,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: CsColors.text,
+                fontSize: 11.5,
+                height: 1.55,
+              ),
+            ),
+          ),
         ],
       ),
     );

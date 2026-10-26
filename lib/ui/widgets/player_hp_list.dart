@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app_config.dart';
 import '../../models/player.dart';
 import '../team_style.dart';
+import '../theme/csgo_theme.dart';
 
 /// 顶部：本房间所有玩家的血条列表（按队伍分组，名字 + HP + 击杀 + 状态）
 class PlayerHpList extends StatefulWidget {
@@ -74,12 +75,14 @@ class _PlayerHpListState extends State<PlayerHpList> {
   Widget build(BuildContext context) {
     final now = widget.serverNow();
     return SizedBox(
-      // 横向列表定界：卡片内容 ≈ 14(名字行) + 4 + 5(血条) + 3 + 12(状态行)
-      // + 上下内边距 10 + 边框 2 → 取 78 留余量。
+      // 横向列表定界：卡片内容 = 名字行 ~14 + 4 + 血条 4 + 3 + 状态行 ~12，
+      // 加卡片上下内边距 10 + 边框 2，再留出字体缩放的余量 → 取 78。
       height: 78,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        // 外层终端面板已经有 10px 内边距，这里不再叠加，保证血条卡片和
+        // 房间号左对齐；3 个玩家时正好铺满，6 个玩家时横向滚动。
+        padding: EdgeInsets.zero,
         itemCount: widget.players.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
@@ -111,13 +114,7 @@ class _PlayerChip extends StatelessWidget {
     final alive = player.isAlive;
     final ratio = (player.hp / Cfg.maxHp).clamp(0.0, 1.0).toDouble();
     final teamColor = TeamStyle.colorOf(player.team);
-    final barColor = !alive
-        ? const Color(0xFF555555)
-        : ratio > 0.6
-            ? const Color(0xFF00E676)
-            : ratio > 0.3
-                ? const Color(0xFFFFC107)
-                : const Color(0xFFFF5252);
+    final barColor = csgoHpColor(ratio, alive: alive);
     final shielded = player.isInvincibleAt(serverNow);
 
     final String statusText;
@@ -138,18 +135,16 @@ class _PlayerChip extends StatelessWidget {
 
     return Opacity(
       // 阵亡灰显
-      opacity: alive ? 1.0 : 0.45,
+      opacity: alive ? 1.0 : 0.5,
       child: Container(
-        width: 120,
+        width: 122,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
-          color: const Color(0xCC000000),
-          borderRadius: BorderRadius.circular(10),
+          color: CsColors.panel,
+          borderRadius: BorderRadius.circular(1),
           border: Border.all(
-            color: isMe
-                ? const Color(0xFF00E676)
-                : teamColor.withValues(alpha: 0.55),
-            width: isMe ? 1.6 : 1,
+            color: isMe ? CsColors.accent : teamColor.withValues(alpha: 0.55),
+            width: isMe ? 1.4 : 1,
           ),
         ),
         child: Column(
@@ -158,13 +153,14 @@ class _PlayerChip extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
+                // 队色徽标：A / B / ?
                 Container(
                   width: 14,
                   height: 14,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: teamColor.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(3),
+                    borderRadius: BorderRadius.circular(1),
                   ),
                   child: Text(
                     TeamStyle.initialOf(player.team),
@@ -179,34 +175,43 @@ class _PlayerChip extends StatelessWidget {
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    isMe ? '${player.name}(我)' : player.name,
+                    isMe ? '${player.name} · 我' : player.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 11.5, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                      color: isMe ? CsColors.accent : CsColors.textStrong,
+                    ),
                   ),
                 ),
+                if (!alive) ...<Widget>[
+                  const SizedBox(width: 2),
+                  const Icon(Icons.close, size: 10, color: CsColors.danger),
+                ],
               ],
             ),
             const SizedBox(height: 4),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(
-                value: alive ? ratio : 0,
-                minHeight: 5,
-                backgroundColor: Colors.white12,
-                valueColor: AlwaysStoppedAnimation<Color>(barColor),
-              ),
+            LinearProgressIndicator(
+              value: alive ? ratio : 0,
+              minHeight: 4,
+              backgroundColor: CsColors.border,
+              valueColor: AlwaysStoppedAnimation<Color>(barColor),
             ),
             const SizedBox(height: 3),
             Row(
               children: <Widget>[
-                if (shielded)
+                if (shielded) ...<Widget>[
                   const Padding(
                     padding: EdgeInsets.only(right: 3),
-                    child:
-                        Icon(Icons.shield, size: 10, color: Color(0xFF40C4FF)),
+                    child: Icon(
+                      Icons.shield,
+                      size: 10,
+                      color: Color(0xFF40C4FF),
+                    ),
                   ),
+                ],
                 Expanded(
                   child: Text(
                     statusText,
@@ -214,7 +219,8 @@ class _PlayerChip extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 10,
-                      color: alive ? Colors.white70 : Colors.white38,
+                      letterSpacing: 0.2,
+                      color: alive ? CsColors.text : CsColors.textMuted,
                     ),
                   ),
                 ),
@@ -222,8 +228,8 @@ class _PlayerChip extends StatelessWidget {
                   'K ${player.kills}',
                   style: const TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFFFFC107),
+                    fontWeight: FontWeight.w800,
+                    color: CsColors.accent,
                   ),
                 ),
               ],
@@ -243,8 +249,8 @@ class RoomHeader extends StatelessWidget {
     required this.playerCount,
     required this.isHost,
     required this.onReset,
-    required this.alphaScore,
-    required this.bravoScore,
+    this.alphaScore = 0,
+    this.bravoScore = 0,
   });
 
   final String roomId;
@@ -258,32 +264,64 @@ class RoomHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-          decoration: BoxDecoration(
-            color: const Color(0xCC000000),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            '房间 $roomId · $playerCount/${Cfg.maxPlayers}',
-            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+        Flexible(
+          flex: 3,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: CsColors.panelDeep,
+              borderRadius: BorderRadius.circular(1),
+              border: Border.all(color: CsColors.border),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Container(width: 5, height: 5, color: CsColors.accent),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'ROOM $roomId · $playerCount/${Cfg.maxPlayers}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: CsColors.accent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(child: _TeamScoreBar(alpha: alphaScore, bravo: bravoScore)),
+        const SizedBox(width: 6),
+        Expanded(
+          flex: 2,
+          child: _TeamScoreBar(alpha: alphaScore, bravo: bravoScore),
+        ),
         if (isHost) ...<Widget>[
-          const SizedBox(width: 6),
+          const SizedBox(width: 4),
           TextButton.icon(
             onPressed: onReset,
             style: TextButton.styleFrom(
-              backgroundColor: const Color(0xCC000000),
-              foregroundColor: const Color(0xFF00E676),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              minimumSize: const Size(0, 34),
+              backgroundColor: CsColors.panelDeep,
+              foregroundColor: CsColors.accent,
+              side: const BorderSide(color: CsColors.borderStrong),
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(1)),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 32),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
             ),
-            icon: const Icon(Icons.refresh, size: 15),
-            label: const Text('重开', style: TextStyle(fontSize: 12)),
+            icon: const Icon(Icons.refresh, size: 14),
+            label: const Text('重置游戏'),
           ),
         ],
       ],
@@ -301,53 +339,58 @@ class _TeamScoreBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xCC000000),
-        borderRadius: BorderRadius.circular(8),
+        color: CsColors.panelDeep,
+        borderRadius: BorderRadius.circular(1),
+        border: Border.all(color: CsColors.border),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          const Text(
-            'A',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: TeamStyle.alpha,
+      // 窄屏时整体等比缩小，避免比分条被固定字宽撑破。
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Text(
+              'A',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                color: TeamStyle.alpha,
+              ),
             ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '$alpha',
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w900,
-              color: TeamStyle.alpha,
+            const SizedBox(width: 3),
+            Text(
+              '$alpha',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: TeamStyle.alpha,
+              ),
             ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 6),
-            child: Text(':', style: TextStyle(color: Colors.white38)),
-          ),
-          Text(
-            '$bravo',
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w900,
-              color: TeamStyle.bravo,
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Text(':', style: TextStyle(color: CsColors.textMuted)),
             ),
-          ),
-          const SizedBox(width: 4),
-          const Text(
-            'B',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: TeamStyle.bravo,
+            Text(
+              '$bravo',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                color: TeamStyle.bravo,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 3),
+            const Text(
+              'B',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                color: TeamStyle.bravo,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

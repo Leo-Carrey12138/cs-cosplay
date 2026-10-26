@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../models/detection_frame.dart';
 import '../../util/frame_mapper.dart';
+import '../theme/csgo_theme.dart';
 
 /// 把本地检测结果实时叠在相机画面上：
-///   绿色框 = 可瞄准的人（供玩家参考）
+///   沙黄框 = 可瞄准的人（供玩家参考）
 ///   白色半透明框 = 其它显著物体
 class DetectionOverlay extends StatelessWidget {
   const DetectionOverlay({super.key, required this.frame});
@@ -27,8 +28,8 @@ class DetectionBoxPainter extends CustomPainter {
 
   final DetectionFrame? frame;
 
-  static const Color _personColor = Color(0xFF00E676);
-  static const Color _objectColor = Color(0x55FFFFFF);
+  static const Color _personColor = CsColors.accent;
+  static const Color _objectColor = Color(0x55C7C9C2);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -50,7 +51,7 @@ class DetectionBoxPainter extends CustomPainter {
         rect,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = box.isPerson ? 3 : 1.5
+          ..strokeWidth = box.isPerson ? 2.4 : 1.2
           ..color = color,
       );
 
@@ -74,7 +75,7 @@ class DetectionBoxPainter extends CustomPainter {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
+      ..strokeWidth = 3.2
       ..strokeCap = StrokeCap.square;
 
     // 左上
@@ -87,8 +88,10 @@ class DetectionBoxPainter extends CustomPainter {
     canvas.drawLine(rect.bottomLeft, rect.bottomLeft + Offset(len, 0), paint);
     canvas.drawLine(rect.bottomLeft, rect.bottomLeft + Offset(0, -len), paint);
     // 右下
-    canvas.drawLine(rect.bottomRight, rect.bottomRight + Offset(-len, 0), paint);
-    canvas.drawLine(rect.bottomRight, rect.bottomRight + Offset(0, -len), paint);
+    canvas.drawLine(
+        rect.bottomRight, rect.bottomRight + Offset(-len, 0), paint);
+    canvas.drawLine(
+        rect.bottomRight, rect.bottomRight + Offset(0, -len), paint);
   }
 
   void _drawLabel(Canvas canvas, Rect rect, String text, Color color) {
@@ -97,9 +100,10 @@ class DetectionBoxPainter extends CustomPainter {
         text: text,
         style: TextStyle(
           color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          backgroundColor: const Color(0xAA000000),
+          fontSize: 10,
+          letterSpacing: 0.8,
+          fontWeight: FontWeight.w800,
+          backgroundColor: const Color(0xCC1B1E19),
         ),
       ),
       textDirection: TextDirection.ltr,
